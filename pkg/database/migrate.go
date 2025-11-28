@@ -3,11 +3,12 @@ package database
 import (
 	"log"
 
-	"gorm.io/gorm"
 	"seat-management-backend/internal/domain/entity"
+
+	"gorm.io/gorm"
 )
 
-// AutoMigrate はテーブルとENUM型を作成
+// AutoMigrate
 func AutoMigrate(db *gorm.DB) error {
 	log.Println("Running database migrations...")
 
@@ -29,7 +30,7 @@ func AutoMigrate(db *gorm.DB) error {
 	return nil
 }
 
-// createEnums はENUM型を作成
+// ENUM型を作成
 func createEnums(db *gorm.DB) error {
 	enums := []string{
 		`DO $$ BEGIN
