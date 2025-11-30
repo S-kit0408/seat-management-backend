@@ -141,7 +141,7 @@ func (h *WebhookHandler) HandleClerkWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Webhookの処理が完了しました"})
 }
 
-// determineAuthProvider は認証プロバイダーを判定する
+// 認証プロバイダーを判定する
 func determineAuthProvider(clerkUser ClerkUserData) entity.AuthProvider {
 	// デバッグログを追加
 	log.Printf("[Webhook] Determining auth provider...")
