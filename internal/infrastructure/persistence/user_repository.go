@@ -85,3 +85,17 @@ func (r *userRepository) List(ctx context.Context, limit, offset int) ([]*entity
 		Find(&users).Error
 	return users, err
 }
+
+func (r *userRepository) FindByEmails(ctx context.Context, emails []string) ([]*entity.User, error) {
+	var users []*entity.User
+	err := r.db.WithContext(ctx).Where("email IN ?", emails).Find(&users).Error
+	return users, err
+}
+
+func (r *userRepository) UpdateRole(ctx context.Context, userID string, role entity.UserRole) error {
+	return r.db.WithContext(ctx).
+		Model(&entity.User{}).
+		Where("id = ?", userID).
+		Update("role", role).
+		Error
+}

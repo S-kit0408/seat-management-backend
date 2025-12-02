@@ -1,9 +1,10 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
-	"seat-management-backend/internal/middleware"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -11,22 +12,23 @@ import (
 
 	"seat-management-backend/internal/infrastructure/persistence"
 	"seat-management-backend/internal/interface/handler"
+	"seat-management-backend/internal/middleware"
 	"seat-management-backend/internal/usecase"
 	"seat-management-backend/pkg/database"
 )
 
 func main() {
-	// 環境変数の読み込み
+	// 環境変数読み込み
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found")
 	}
 
-	// Clerk SDKを初期化
+	// Clerk SDK init
 	if err := middleware.InitClerk(); err != nil {
 		log.Fatalln("Failed to initialize Clerk:", err)
 	}
 
-	// データベース接続
+	// connect db
 	db, err := database.NewPostgresDB()
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
@@ -37,15 +39,19 @@ func main() {
 		log.Fatal("Failed to migrate database:", err)
 	}
 
-	// 依存関係の注入
+	// 依存関係
 	userRepo := persistence.NewUserRepository(db)
 	userUsecase := usecase.NewUserUsecase(userRepo)
 
-	// ハンドラーの初期化
+	// 管理者設定
+	setupAdmins(userUsecase)
+
+	// handler init
 	userHandler := handler.NewUserHandler(userUsecase)
 	webhookHandler := handler.NewWebhookHandler(userUsecase)
+	adminHandler := handler.NewAdminHandler(userUsecase, userRepo)
 
-	// Ginルーターの初期化
+	// ルーターの初期化
 	r := gin.Default()
 
 	// CORS設定
@@ -68,6 +74,7 @@ func main() {
 	// ルートの登録
 	userHandler.RegisterRoutes(r)
 	webhookHandler.RegisterRoutes(r)
+	adminHandler.RegisterRoutes(r)
 
 	// サーバー起動
 	port := os.Getenv("SERVER_PORT")
@@ -79,4 +86,27 @@ func main() {
 	if err := r.Run(":" + port); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
+}
+
+// setupAdmins は環境変数で指定された管理者を設定
+func setupAdmins(userUsecase usecase.UserUsecase) {
+	adminEmailsStr := os.Getenv("ADMIN_EMAILS")
+	if adminEmailsStr == "" {
+		log.Println("No admin emails configured")
+		return
+	}
+
+	// カンマ区切りでメールアドレスを分割
+	adminEmails := strings.Split(adminEmailsStr, ",")
+	for i, email := range adminEmails {
+		adminEmails[i] = strings.TrimSpace(email)
+	}
+
+	ctx := context.Background()
+	if err := userUsecase.SetupAdminUsers(ctx, adminEmails); err != nil {
+		log.Printf("Warning: Failed to setup admin users: %v", err)
+		return
+	}
+
+	log.Printf("Admin users configured: %v", adminEmails)
 }

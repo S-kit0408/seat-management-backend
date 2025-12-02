@@ -7,7 +7,7 @@ import (
 	"seat-management-backend/internal/domain/repository"
 )
 
-// UserUsecase はユーザー関連のビジネスロジックを定義
+// ユーザー関連のビジネスロジックを定義
 type UserUsecase interface {
 	Create(ctx context.Context, user *entity.User) error
 	GetByID(ctx context.Context, id string) (*entity.User, error)
@@ -15,23 +15,24 @@ type UserUsecase interface {
 	GetByEmail(ctx context.Context, email string) (*entity.User, error)
 	Update(ctx context.Context, user *entity.User) error
 	UpdateLastLogin(ctx context.Context, userID string) error
+	UpdateRole(ctx context.Context, userID string, role entity.UserRole) error
+	SetupAdminUsers(ctx context.Context, adminEmails []string) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, limit, offset int) ([]*entity.User, error)
 }
 
-// userUsecase はUserUsecaseの実装
 type userUsecase struct {
 	userRepo repository.UserRepository
 }
 
-// NewUserUsecase はUserUsecaseの新しいインスタンスを作成
+// UserUsecaseの新しいインスタンスを作成
 func NewUserUsecase(ur repository.UserRepository) UserUsecase {
 	return &userUsecase{
 		userRepo: ur,
 	}
 }
 
-// Create は新しいユーザーを作成
+// ユーザーを作成
 func (u *userUsecase) Create(ctx context.Context, user *entity.User) error {
 	// ビジネスロジック: デフォルト値の設定など
 	if user.DefaultPrivacySetting == "" {
@@ -44,22 +45,22 @@ func (u *userUsecase) Create(ctx context.Context, user *entity.User) error {
 	return u.userRepo.Create(ctx, user)
 }
 
-// GetByID はIDでユーザーを取得
+// IDでユーザーを取得
 func (u *userUsecase) GetByID(ctx context.Context, id string) (*entity.User, error) {
 	return u.userRepo.FindByID(ctx, id)
 }
 
-// GetByClerkUserID はClerk User IDでユーザーを取得
+// Clerk User IDでユーザーを取得
 func (u *userUsecase) GetByClerkUserID(ctx context.Context, clerkUserID string) (*entity.User, error) {
 	return u.userRepo.FindByClerkUserID(ctx, clerkUserID)
 }
 
-// GetByEmail はEmailでユーザーを取得
+// Emailでユーザーを取得
 func (u *userUsecase) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
 	return u.userRepo.FindByEmail(ctx, email)
 }
 
-// Update はユーザー情報を更新
+// ユーザー情報を更新
 func (u *userUsecase) Update(ctx context.Context, user *entity.User) error {
 	// ビジネスロジック: バリデーションなど
 	if user.Email == "" {
@@ -72,17 +73,17 @@ func (u *userUsecase) Update(ctx context.Context, user *entity.User) error {
 	return u.userRepo.Update(ctx, user)
 }
 
-// UpdateLastLogin は最終ログイン時刻を更新
+// 最終ログイン時刻を更新
 func (u *userUsecase) UpdateLastLogin(ctx context.Context, userID string) error {
 	return u.userRepo.UpdateLastLogin(ctx, userID)
 }
 
-// Delete はユーザーを削除（ソフトデリート）
+// ユーザーを削除（ソフトデリート）
 func (u *userUsecase) Delete(ctx context.Context, id string) error {
 	return u.userRepo.Delete(ctx, id)
 }
 
-// List はユーザー一覧を取得
+// ユーザー一覧を取得
 func (u *userUsecase) List(ctx context.Context, limit, offset int) ([]*entity.User, error) {
 	// ビジネスロジック: limitの最大値チェックなど
 	if limit <= 0 || limit > 100 {
@@ -93,4 +94,49 @@ func (u *userUsecase) List(ctx context.Context, limit, offset int) ([]*entity.Us
 	}
 
 	return u.userRepo.List(ctx, limit, offset)
+}
+
+// ユーザーのロールを更新
+func (u *userUsecase) UpdateRole(ctx context.Context, userID string, role entity.UserRole) error {
+	// ビジネスロジック: ロールのバリデーション
+	if !role.IsValid() {
+		return entity.ErrInvalidRole
+	}
+
+	return u.userRepo.UpdateRole(ctx, userID, role)
+}
+
+// 環境変数で指定された管理者を設定
+func (u *userUsecase) SetupAdminUsers(ctx context.Context, adminEmails []string) error {
+	// 全ユーザーを取得（limit=100で十分）
+	allUsers, err := u.userRepo.List(ctx, 100, 0)
+	if err != nil {
+		return err
+	}
+
+	// adminEmailsをマップに変換（高速検索用）
+	adminEmailMap := make(map[string]bool)
+	for _, email := range adminEmails {
+		adminEmailMap[email] = true
+	}
+
+	// 全ユーザーをチェック
+	for _, user := range allUsers {
+		shouldBeAdmin := adminEmailMap[user.Email]
+
+		// 現在のロールと期待されるロールが異なる場合のみ更新
+		if shouldBeAdmin && user.Role != entity.RoleAdmin {
+			// userをadminに昇格
+			if err := u.userRepo.UpdateRole(ctx, user.ID, entity.RoleAdmin); err != nil {
+				return err
+			}
+		} else if !shouldBeAdmin && user.Role == entity.RoleAdmin {
+			// adminをuserに降格
+			if err := u.userRepo.UpdateRole(ctx, user.ID, entity.RoleUser); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }

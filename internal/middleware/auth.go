@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"seat-management-backend/internal/domain/repository"
+
 	"github.com/clerk/clerk-sdk-go/v2"
 	"github.com/clerk/clerk-sdk-go/v2/jwt"
 	"github.com/gin-gonic/gin"
@@ -134,4 +136,37 @@ func GetName(c *gin.Context) (string, bool) {
 		return "", false
 	}
 	return name.(string), true
+}
+
+// RequireAdmin は管理者権限を必要とするミドルウェア
+func RequireAdmin(userRepo repository.UserRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// ClerkAuthMiddleware から clerkUserID を取得
+		clerkUserID, err := GetClerkUserID(c)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+			c.Abort()
+			return
+		}
+
+		// DBからユーザー情報を取得
+		ctx := context.Background()
+		user, err := userRepo.FindByClerkUserID(ctx, clerkUserID)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "ユーザーが見つかりません"})
+			c.Abort()
+			return
+		}
+
+		// 管理者かどうかチェック
+		if !user.IsAdmin() {
+			c.JSON(http.StatusForbidden, gin.H{"error": "管理者権限が必要です"})
+			c.Abort()
+			return
+		}
+
+		// コンテキストにユーザー情報を設定
+		c.Set("currentUser", user)
+		c.Next()
+	}
 }

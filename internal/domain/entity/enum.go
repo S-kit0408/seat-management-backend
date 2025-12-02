@@ -33,3 +33,19 @@ func (a AuthProvider) IsValid() bool {
 	}
 	return false
 }
+
+type UserRole string
+
+const (
+	RoleUser      UserRole = "user"
+	RoleAdmin     UserRole = "admin"
+	RoleModerator UserRole = "moderator"
+)
+
+func (r UserRole) IsValid() bool {
+	switch r {
+	case RoleUser, RoleAdmin, RoleModerator:
+		return true
+	}
+	return false
+}

@@ -43,6 +43,11 @@ func createEnums(db *gorm.DB) error {
         EXCEPTION
             WHEN duplicate_object THEN null;
         END $$;`,
+		`DO $$ BEGIN
+            CREATE TYPE user_role_enum AS ENUM ('user', 'admin', 'moderator');
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;`,
 	}
 
 	for _, enum := range enums {

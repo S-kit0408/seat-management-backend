@@ -10,8 +10,10 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id string) (*entity.User, error)
 	FindByClerkUserID(ctx context.Context, clerkUserID string) (*entity.User, error)
 	FindByEmail(ctx context.Context, email string) (*entity.User, error)
+	FindByEmails(ctx context.Context, emails []string) ([]*entity.User, error)
 	Update(ctx context.Context, user *entity.User) error
 	UpdateLastLogin(ctx context.Context, userID string) error
+	UpdateRole(ctx context.Context, userID string, role entity.UserRole) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, limit, offset int) ([]*entity.User, error)
 }

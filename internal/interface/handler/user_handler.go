@@ -64,7 +64,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
-	if err := c.ShouldBindJSON(&user); err != nil {
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
@@ -82,12 +82,13 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 
 	if err := h.userUsecase.Update(c.Request.Context(), user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, user)
 }
 
-// RegisterRoutes はユーザールートを登録
+// ユーザールートを登録
 func (h *UserHandler) RegisterRoutes(r *gin.Engine) {
 	users := r.Group("/api/users")
 	users.Use(middleware.ClerkAuthMiddleware())

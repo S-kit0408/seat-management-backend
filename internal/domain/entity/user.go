@@ -16,6 +16,7 @@ type User struct {
 	AvatarURL             *string        `gorm:"type:varchar(500)" json:"avatar_url,omitempty"`
 	PrimaryAuthProvider   AuthProvider   `gorm:"type:auth_provider_enum;default:'unknown'" json:"primary_auth_provider"`
 	DefaultPrivacySetting PrivacySetting `gorm:"type:privacy_setting_enum;default:'private'" json:"default_privacy_setting"`
+	Role                  UserRole       `gorm:"type:user_role_enum;default:'user'" json:"role"`
 	LastLoginAt           *time.Time     `gorm:"type:timestamp with time zone" json:"last_login_at,omitempty"`
 	CreatedAt             time.Time      `gorm:"type:timestamp with time zone;default:CURRENT_TIMESTAMP" json:"created_at"`
 	UpdatedAt             time.Time      `gorm:"type:timestamp with time zone;default:CURRENT_TIMESTAMP" json:"updated_at"`
@@ -33,6 +34,10 @@ func (u *User) BeforeCreate(tx *gorm.DB) error {
 		u.ID = ulidpkg.Generate()
 	}
 	return nil
+}
+
+func (u *User) IsAdmin() bool {
+	return u.Role == RoleAdmin
 }
 
 // UpdateLastLogin は最終ログイン時刻を更新
