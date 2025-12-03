@@ -41,15 +41,20 @@ func main() {
 
 	// 依存関係
 	userRepo := persistence.NewUserRepository(db)
+	friendRequestRepo := persistence.NewFriendRequestRepository(db)
+	friendshipRepo := persistence.NewFriendshipRepository(db)
+
 	userUsecase := usecase.NewUserUsecase(userRepo)
+	friendUsecase := usecase.NewFriendUsecase(friendRequestRepo, friendshipRepo, userRepo, db)
 
 	// 管理者設定
 	setupAdmins(userUsecase)
 
 	// handler init
-	userHandler := handler.NewUserHandler(userUsecase)
 	webhookHandler := handler.NewWebhookHandler(userUsecase)
 	adminHandler := handler.NewAdminHandler(userUsecase, userRepo)
+	userHandler := handler.NewUserHandler(userUsecase)
+	friendHandler := handler.NewFriendHandler(friendUsecase, userUsecase)
 
 	// ルーターの初期化
 	r := gin.Default()
@@ -72,9 +77,10 @@ func main() {
 	})
 
 	// ルートの登録
-	userHandler.RegisterRoutes(r)
 	webhookHandler.RegisterRoutes(r)
 	adminHandler.RegisterRoutes(r)
+	userHandler.RegisterRoutes(r)
+	friendHandler.RegisterRoutes(r)
 
 	// サーバー起動
 	port := os.Getenv("SERVER_PORT")

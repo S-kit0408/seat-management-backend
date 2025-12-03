@@ -1,5 +1,6 @@
 package entity
 
+// プライバシー設定
 type PrivacySetting string
 
 const (
@@ -8,7 +9,6 @@ const (
 	PrivacyPrivate PrivacySetting = "private"
 )
 
-// IsValid はPrivacySettingが有効かチェック
 func (p PrivacySetting) IsValid() bool {
 	switch p {
 	case PrivacyPublic, PrivacyFriends, PrivacyPrivate:
@@ -17,6 +17,7 @@ func (p PrivacySetting) IsValid() bool {
 	return false
 }
 
+// ログインプロバイダー
 type AuthProvider string
 
 const (
@@ -25,7 +26,6 @@ const (
 	AuthProviderUnknown AuthProvider = "unknown"
 )
 
-// IsValid はAuthProviderが有効かチェック
 func (a AuthProvider) IsValid() bool {
 	switch a {
 	case AuthProviderEmail, AuthProviderGoogle, AuthProviderUnknown:
@@ -34,6 +34,7 @@ func (a AuthProvider) IsValid() bool {
 	return false
 }
 
+// ユーザーロール
 type UserRole string
 
 const (
@@ -45,6 +46,28 @@ const (
 func (r UserRole) IsValid() bool {
 	switch r {
 	case RoleUser, RoleAdmin, RoleModerator:
+		return true
+	}
+	return false
+}
+
+// フレンド申請ステータス
+type RequestStatus string
+
+const (
+	RequestStatusPending   RequestStatus = "pending"
+	RequestStatusAccepted  RequestStatus = "accepted"
+	RequestStatusRejected  RequestStatus = "rejected"
+	RequestStatusCancelled RequestStatus = "cancelled"
+)
+
+func (rs RequestStatus) String() string {
+	return string(rs)
+}
+
+func (rs RequestStatus) IsValid() bool {
+	switch rs {
+	case RequestStatusPending, RequestStatusAccepted, RequestStatusRejected, RequestStatusCancelled:
 		return true
 	}
 	return false

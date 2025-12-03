@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
-
 	"seat-management-backend/internal/domain/repository"
+	"strings"
 
 	"github.com/clerk/clerk-sdk-go/v2"
 	"github.com/clerk/clerk-sdk-go/v2/jwt"
@@ -57,7 +56,8 @@ func ClerkAuthMiddleware() gin.HandlerFunc {
 		ctx := context.Background()
 
 		claims, err := jwt.Verify(ctx, &jwt.VerifyParams{
-			Token: tokenString,
+			Token:  tokenString,
+			Leeway: 5 * 60,
 		})
 
 		if err != nil {
@@ -150,7 +150,7 @@ func RequireAdmin(userRepo repository.UserRepository) gin.HandlerFunc {
 		}
 
 		// DBからユーザー情報を取得
-		ctx := context.Background()
+		ctx := c.Request.Context()
 		user, err := userRepo.FindByClerkUserID(ctx, clerkUserID)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "ユーザーが見つかりません"})

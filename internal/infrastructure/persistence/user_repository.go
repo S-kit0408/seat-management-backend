@@ -60,6 +60,31 @@ func (r *userRepository) FindByEmail(ctx context.Context, email string) (*entity
 	return &user, nil
 }
 
+func (r *userRepository) FindByName(ctx context.Context, name string) (*entity.User, error) {
+	var user entity.User
+	err := r.db.WithContext(ctx).Where("name = ?", name).First(&user).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("ユーザーが見つかりません")
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *userRepository) SearchByName(ctx context.Context, name string) ([]*entity.User, error) {
+	var users []*entity.User
+	// 部分一致検索（LIKE検索）
+	err := r.db.WithContext(ctx).
+		Where("name LIKE ?", "%"+name+"%").
+		Limit(20). // 検索結果を20件に制限
+		Find(&users).Error
+	if err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
 func (r *userRepository) Update(ctx context.Context, user *entity.User) error {
 	return r.db.WithContext(ctx).Save(user).Error
 }

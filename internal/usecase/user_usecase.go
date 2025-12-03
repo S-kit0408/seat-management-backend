@@ -13,6 +13,8 @@ type UserUsecase interface {
 	GetByID(ctx context.Context, id string) (*entity.User, error)
 	GetByClerkUserID(ctx context.Context, clerkUserID string) (*entity.User, error)
 	GetByEmail(ctx context.Context, email string) (*entity.User, error)
+	GetByName(ctx context.Context, name string) (*entity.User, error)
+	SearchByName(ctx context.Context, name string) ([]*entity.User, error)
 	Update(ctx context.Context, user *entity.User) error
 	UpdateLastLogin(ctx context.Context, userID string) error
 	UpdateRole(ctx context.Context, userID string, role entity.UserRole) error
@@ -58,6 +60,20 @@ func (u *userUsecase) GetByClerkUserID(ctx context.Context, clerkUserID string) 
 // Emailでユーザーを取得
 func (u *userUsecase) GetByEmail(ctx context.Context, email string) (*entity.User, error) {
 	return u.userRepo.FindByEmail(ctx, email)
+}
+
+// Nameでユーザー取得
+func (u *userUsecase) GetByName(ctx context.Context, name string) (*entity.User, error) {
+	return u.userRepo.FindByName(ctx, name)
+}
+
+// Nameでユーザー検索
+func (u *userUsecase) SearchByName(ctx context.Context, name string) ([]*entity.User, error) {
+	// 空文字列チェック
+	if name == "" {
+		return []*entity.User{}, nil
+	}
+	return u.userRepo.SearchByName(ctx, name)
 }
 
 // ユーザー情報を更新

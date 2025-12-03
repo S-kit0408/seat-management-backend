@@ -26,14 +26,14 @@ func NewWebhookHandler(uu usecase.UserUsecase) *WebhookHandler {
 	}
 }
 
-// WebhookEvent はClerkからのWebhookイベントの構造
+// ClerkからのWebhookイベント
 type WebhookEvent struct {
 	Type   string          `json:"type"`
 	Object string          `json:"object"`
 	Data   json.RawMessage `json:"data"`
 }
 
-// ClerkUserData はClerkユーザーデータの構造
+// Clerkユーザー構造
 type ClerkUserData struct {
 	ID               string                 `json:"id"`
 	EmailAddresses   []ClerkEmailAddress    `json:"email_addresses"`
@@ -56,7 +56,7 @@ type ClerkExternalAccount struct {
 	AvatarURL    string `json:"avatar_url"`
 }
 
-// HandleClerkWebhook はClerkからのWebhookを処理
+// ClerkからのWebhookを処理
 func (h *WebhookHandler) HandleClerkWebhook(c *gin.Context) {
 	payload, err := io.ReadAll(c.Request.Body)
 	if err != nil {
@@ -141,7 +141,7 @@ func (h *WebhookHandler) HandleClerkWebhook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Webhookの処理が完了しました"})
 }
 
-// 認証プロバイダーを判定する
+// 認証プロバイダーの判定
 func determineAuthProvider(clerkUser ClerkUserData) entity.AuthProvider {
 	// デバッグログを追加
 	log.Printf("[Webhook] Determining auth provider...")
@@ -208,7 +208,7 @@ func (h *WebhookHandler) handleUserCreated(c *gin.Context, data json.RawMessage)
 		return nil
 	}
 
-	// ⭐ 認証プロバイダーを判定
+	// 認証プロバイダーを判定
 	authProvider := determineAuthProvider(clerkUser)
 	log.Printf("[Webhook] Determined auth provider: %s", authProvider)
 
@@ -290,7 +290,7 @@ func (h *WebhookHandler) handleUserDeleted(c *gin.Context, data json.RawMessage)
 	return nil
 }
 
-// RegisterRoutes はWebhookルートを登録
+// Webhookルート
 func (h *WebhookHandler) RegisterRoutes(r *gin.Engine) {
 	r.POST("/api/webhooks/clerk", h.HandleClerkWebhook)
 }

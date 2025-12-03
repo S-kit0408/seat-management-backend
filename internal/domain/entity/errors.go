@@ -12,9 +12,10 @@ var (
 	ErrDuplicateClerkID = errors.New("このClerk IDは既に使用されています")
 	ErrUnauthorized     = errors.New("権限がありません")
 
-	// 座席関連のエラー（今後追加）
-	// ErrSeatNotFound = errors.New("座席が見つかりません")
-
-	// 予約関連のエラー（今後追加）
-	// ErrReservationNotFound = errors.New("予約が見つかりません")
+	// フレンド機能関連のエラー
+	ErrFriendRequestAlreadyExists = errors.New("すでにリクエストが存在しています")
+	ErrFriendRequestNotFound      = errors.New("リクエストが見つかりません")
+	ErrAlreadyFriends             = errors.New("すでにフレンドです")
+	ErrCannotSendToSelf           = errors.New("自身へのリクエスト送信は行えません")
+	ErrInvalidRequestStatus       = errors.New("無効なリクエストステータスです")
 )

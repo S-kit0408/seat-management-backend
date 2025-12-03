@@ -88,6 +88,23 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
+// ユーザー検索
+func (h *UserHandler) SearchUsers(c *gin.Context) {
+	name := c.Query("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "検索キーワードが必要です"})
+		return
+	}
+
+	users, err := h.userUsecase.SearchByName(c.Request.Context(), name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, users)
+}
+
 // ユーザールートを登録
 func (h *UserHandler) RegisterRoutes(r *gin.Engine) {
 	users := r.Group("/api/users")
@@ -95,5 +112,6 @@ func (h *UserHandler) RegisterRoutes(r *gin.Engine) {
 	{
 		users.GET("/me", h.GetMe)
 		users.PUT("/me", h.UpdateProfile)
+		users.GET("/search", h.SearchUsers)
 	}
 }
