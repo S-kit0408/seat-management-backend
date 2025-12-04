@@ -44,14 +44,6 @@ func (r *friendRequestRepository) Update(ctx context.Context, request *entity.Fr
 	return r.db.WithContext(ctx).Save(request).Error
 }
 
-func (r *friendRequestRepository) UpdateStatus(ctx context.Context, id string, status entity.RequestStatus) error {
-	return r.db.WithContext(ctx).
-		Model(&entity.FriendRequest{}).
-		Where("id = ?", id).
-		Update("status", status).
-		Error
-}
-
 func (r *friendRequestRepository) Delete(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Delete(&entity.FriendRequest{}, "id = ?", id).Error
 }
@@ -99,4 +91,8 @@ func (r *friendRequestRepository) FindSentRequests(ctx context.Context, userID s
 
 	err := query.Order("created_at DESC").Find(&requests).Error
 	return requests, err
+}
+
+func (r *friendRequestRepository) WithTx(tx *gorm.DB) repository.FriendRequestRepository {
+	return &friendRequestRepository{db: tx}
 }

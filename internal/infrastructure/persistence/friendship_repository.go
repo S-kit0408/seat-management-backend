@@ -29,7 +29,7 @@ func (r *friendshipRepository) FindByID(ctx context.Context, id string) (*entity
 		First(&friendship).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, entity.ErrUserNotFound // 適切なエラーがあれば変更
+			return nil, entity.ErrFriendshipNotFound
 		}
 		return nil, err
 	}
@@ -104,12 +104,6 @@ func (r *friendshipRepository) CheckFriendship(ctx context.Context, userID1, use
 	return count > 0, err
 }
 
-func (r *friendshipRepository) CountFriends(ctx context.Context, userID string) (int64, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&entity.Friendship{}).
-		Where("user_id1 = ? OR user_id2 = ?", userID, userID).
-		Count(&count).Error
-
-	return count, err
+func (r *friendshipRepository) WithTx(tx *gorm.DB) repository.FriendshipRepository {
+	return &friendshipRepository{db: tx}
 }

@@ -128,8 +128,11 @@ func (u *friendUsecase) AcceptFriendRequest(ctx context.Context, requestID, user
 		}
 	}()
 
+	txFriendRequestRepo := u.friendRequestRepo.WithTx(tx)
+	txFriendshipRepo := u.friendshipRepo.WithTx(tx)
+
 	// 申請を取得
-	request, err := u.friendRequestRepo.FindByID(ctx, requestID)
+	request, err := txFriendRequestRepo.FindByID(ctx, requestID)
 	if err != nil {
 		tx.Rollback()
 		return err
@@ -149,7 +152,7 @@ func (u *friendUsecase) AcceptFriendRequest(ctx context.Context, requestID, user
 
 	// 申請を承認状態に更新
 	request.Accept()
-	if err := u.friendRequestRepo.Update(ctx, request); err != nil {
+	if err := txFriendRequestRepo.Update(ctx, request); err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -159,7 +162,7 @@ func (u *friendUsecase) AcceptFriendRequest(ctx context.Context, requestID, user
 		UserID1: request.RequesterID,
 		UserID2: request.AddresseeID,
 	}
-	if err := u.friendshipRepo.Create(ctx, friendship); err != nil {
+	if err := txFriendshipRepo.Create(ctx, friendship); err != nil {
 		tx.Rollback()
 		return err
 	}

@@ -65,7 +65,7 @@ func (r *userRepository) FindByName(ctx context.Context, name string) (*entity.U
 	err := r.db.WithContext(ctx).Where("name = ?", name).First(&user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("ユーザーが見つかりません")
+			return nil, entity.ErrUserNotFound
 		}
 		return nil, err
 	}

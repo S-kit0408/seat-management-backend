@@ -15,6 +15,7 @@ var (
 	// フレンド機能関連のエラー
 	ErrFriendRequestAlreadyExists = errors.New("すでにリクエストが存在しています")
 	ErrFriendRequestNotFound      = errors.New("リクエストが見つかりません")
+	ErrFriendshipNotFound         = errors.New("フレンド関係が見つかりません")
 	ErrAlreadyFriends             = errors.New("すでにフレンドです")
 	ErrCannotSendToSelf           = errors.New("自身へのリクエスト送信は行えません")
 	ErrInvalidRequestStatus       = errors.New("無効なリクエストステータスです")

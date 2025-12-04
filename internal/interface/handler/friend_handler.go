@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -29,24 +30,17 @@ type SendFriendRequestRequest struct {
 
 // フレンド申請を送信
 func (h *FriendHandler) SendFriendRequest(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
-		return
-	}
-
 	var req SendFriendRequestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
-	requesterID := user.ID
 
 	addressee, err := h.userUsecase.GetByName(c.Request.Context(), req.AddresseeName)
 	if err != nil {
@@ -54,7 +48,8 @@ func (h *FriendHandler) SendFriendRequest(c *gin.Context) {
 		return
 	}
 
-	if err := h.friendUsecase.SendFriendRequest(c.Request.Context(), requesterID, addressee.ID, req.Message); err != nil {
+	if err := h.friendUsecase.SendFriendRequest(c.Request.Context(), user.ID, addressee.ID, req.Message); err != nil {
+		log.Printf("Failed to send friend request from %s to %s: %v", user.ID, addressee.ID, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -64,21 +59,15 @@ func (h *FriendHandler) SendFriendRequest(c *gin.Context) {
 
 // 受信した申請一覧を取得
 func (h *FriendHandler) GetReceivedRequests(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
+	requests, err := h.friendUsecase.GetReceivedRequests(c.Request.Context(), user.ID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-		return
-	}
-	userID := user.ID
-
-	requests, err := h.friendUsecase.GetReceivedRequests(c.Request.Context(), userID)
-	if err != nil {
+		log.Printf("Failed to get received requests for user %s: %v", user.ID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -88,20 +77,13 @@ func (h *FriendHandler) GetReceivedRequests(c *gin.Context) {
 
 // 送信した申請一覧を取得
 func (h *FriendHandler) GetSentRequests(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-		return
-	}
-	userID := user.ID
-
-	requests, err := h.friendUsecase.GetSentRequests(c.Request.Context(), userID)
+	requests, err := h.friendUsecase.GetSentRequests(c.Request.Context(), user.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -112,25 +94,20 @@ func (h *FriendHandler) GetSentRequests(c *gin.Context) {
 
 // 申請を承認
 func (h *FriendHandler) AcceptFriendRequest(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
+	requestID := c.Param("id")
+	if requestID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "リクエストIDが必要です"})
+		return
+	}
+
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
-	requestID := c.Param("id")
-	if requestID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "リクエストIDが必要です"})
-	}
-
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-		return
-	}
-	userID := user.ID
-
-	if err := h.friendUsecase.AcceptFriendRequest(c.Request.Context(), requestID, userID); err != nil {
+	if err := h.friendUsecase.AcceptFriendRequest(c.Request.Context(), requestID, user.ID); err != nil {
+		log.Printf("Failed to accept friend request %s by user %s: %v", requestID, user.ID, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -140,22 +117,16 @@ func (h *FriendHandler) AcceptFriendRequest(c *gin.Context) {
 
 // 申請を拒否
 func (h *FriendHandler) RejectFriendRequest(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
+	requestID := c.Param("id")
+
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
-	requestID := c.Param("id")
-
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-		return
-	}
-	userID := user.ID
-
-	if err := h.friendUsecase.RejectFriendRequest(c.Request.Context(), requestID, userID); err != nil {
+	if err := h.friendUsecase.RejectFriendRequest(c.Request.Context(), requestID, user.ID); err != nil {
+		log.Printf("Failed to reject friend request %s by user %s: %v", requestID, user.ID, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -165,22 +136,16 @@ func (h *FriendHandler) RejectFriendRequest(c *gin.Context) {
 
 // 申請をキャンセル
 func (h *FriendHandler) CancelFriendRequest(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
+	requestID := c.Param("id")
+
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
-	requestID := c.Param("id")
-
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-		return
-	}
-	userID := user.ID
-
-	if err := h.friendUsecase.CancelFriendRequest(c.Request.Context(), requestID, userID); err != nil {
+	if err := h.friendUsecase.CancelFriendRequest(c.Request.Context(), requestID, user.ID); err != nil {
+		log.Printf("Failed to cancel friend request %s by user %s: %v", requestID, user.ID, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -190,20 +155,13 @@ func (h *FriendHandler) CancelFriendRequest(c *gin.Context) {
 
 // フレンドリストを取得
 func (h *FriendHandler) GetFriendsList(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-		return
-	}
-	userID := user.ID
-
-	friends, err := h.friendUsecase.GetFriendsList(c.Request.Context(), userID)
+	friends, err := h.friendUsecase.GetFriendsList(c.Request.Context(), user.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -214,22 +172,16 @@ func (h *FriendHandler) GetFriendsList(c *gin.Context) {
 
 // フレンドを解除
 func (h *FriendHandler) RemoveFriend(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
+	friendID := c.Param("id")
+
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
-	friendID := c.Param("id")
-
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-		return
-	}
-	userID := user.ID
-
-	if err := h.friendUsecase.RemoveFriend(c.Request.Context(), userID, friendID); err != nil {
+	if err := h.friendUsecase.RemoveFriend(c.Request.Context(), user.ID, friendID); err != nil {
+		log.Printf("Failed to remove friend %s for user %s: %v", friendID, user.ID, err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -239,22 +191,15 @@ func (h *FriendHandler) RemoveFriend(c *gin.Context) {
 
 // フレンド関係を確認
 func (h *FriendHandler) CheckFriendship(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
+	targetID := c.Param("id")
+
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
-	targetID := c.Param("id")
-
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-		return
-	}
-	userID := user.ID
-
-	isFriend, err := h.friendUsecase.CheckFriendship(c.Request.Context(), userID, targetID)
+	isFriend, err := h.friendUsecase.CheckFriendship(c.Request.Context(), user.ID, targetID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

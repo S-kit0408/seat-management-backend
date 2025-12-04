@@ -27,7 +27,7 @@ func (User) TableName() string {
 	return "users"
 }
 
-// BeforeCreate はレコード作成前に実行される
+// レコード作成前に実行される
 func (u *User) BeforeCreate(tx *gorm.DB) error {
 	if u.ID == "" {
 		// ULIDを生成（後述のパッケージを使用）
@@ -40,7 +40,7 @@ func (u *User) IsAdmin() bool {
 	return u.Role == RoleAdmin
 }
 
-// UpdateLastLogin は最終ログイン時刻を更新
+// 最終ログイン時刻を更新
 func (u *User) UpdateLastLogin() {
 	now := time.Now()
 	u.LastLoginAt = &now

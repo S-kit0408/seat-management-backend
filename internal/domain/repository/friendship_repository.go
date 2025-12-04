@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"seat-management-backend/internal/domain/entity"
+
+	"gorm.io/gorm"
 )
 
 type FriendshipRepository interface {
@@ -15,6 +17,5 @@ type FriendshipRepository interface {
 	FindFriendsByUserID(ctx context.Context, userID string) ([]*entity.User, error)
 	CheckFriendship(ctx context.Context, userID1, userID2 string) (bool, error)
 
-	// 統計
-	CountFriends(ctx context.Context, userID string) (int64, error)
+	WithTx(tx *gorm.DB) FriendshipRepository
 }

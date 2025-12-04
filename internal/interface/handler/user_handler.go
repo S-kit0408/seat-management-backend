@@ -29,21 +29,15 @@ func NewUserHandler(uu usecase.UserUsecase) *UserHandler {
 
 // ユーザー情報を取得
 func (h *UserHandler) GetMe(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-		return
-	}
-
 	// 最終ログイン時刻を更新
 	if err := h.userUsecase.UpdateLastLogin(c.Request.Context(), user.ID); err != nil {
-		log.Println("Failed to update last login for user :", user.ID, err)
+		log.Printf("Failed to update last login for user %s: %v", user.ID, err)
 	}
 
 	c.JSON(http.StatusOK, user)
@@ -51,21 +45,16 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 
 // ユーザー情報の更新
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
-	clerkUserID, err := middleware.GetClerkUserID(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-
 	var req UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	user, err := h.userUsecase.GetByClerkUserID(c.Request.Context(), clerkUserID)
+	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		log.Printf("Failed to get authenticated user: %v", err)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
 		return
 	}
 
@@ -77,10 +66,16 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		user.AvatarURL = req.AvatarURL
 	}
 	if req.DefaultPrivacySetting != nil {
-		user.DefaultPrivacySetting = entity.PrivacySetting(*req.DefaultPrivacySetting)
+		privacySetting := entity.PrivacySetting(*req.DefaultPrivacySetting) // 変数を定義
+		if !privacySetting.IsValid() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "無効なプライバシー設定です"})
+			return
+		}
+		user.DefaultPrivacySetting = privacySetting
 	}
 
 	if err := h.userUsecase.Update(c.Request.Context(), user); err != nil {
+		log.Printf("Failed to update user %s: %v", user.ID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

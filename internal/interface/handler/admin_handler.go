@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,7 @@ func (h *AdminHandler) GetAllUsers(c *gin.Context) {
 
 	users, err := h.userUsecase.List(c.Request.Context(), limit, offset)
 	if err != nil {
+		log.Printf("Admin: Failed to list users: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ユーザーの取得に失敗しました"})
 		return
 	}
@@ -67,6 +69,7 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 	}
 
 	if err := h.userUsecase.UpdateRole(c.Request.Context(), userID, role); err != nil {
+		log.Printf("Admin: Failed to update role for user %s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ロールの更新に失敗しました"})
 		return
 	}
@@ -123,6 +126,7 @@ func (h *AdminHandler) DeleteUser(c *gin.Context) {
 	}
 
 	if err := h.userUsecase.Delete(c.Request.Context(), userID); err != nil {
+		log.Printf("Admin: Failed to delete user %s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ユーザーの削除に失敗しました"})
 		return
 	}
