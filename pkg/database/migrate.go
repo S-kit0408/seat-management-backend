@@ -21,6 +21,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&entity.User{},
 		&entity.FriendRequest{},
 		&entity.Friendship{},
+		&entity.Floor{},
+		&entity.Seat{},
 	)
 
 	if err != nil {

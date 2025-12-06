@@ -43,9 +43,13 @@ func main() {
 	userRepo := persistence.NewUserRepository(db)
 	friendRequestRepo := persistence.NewFriendRequestRepository(db)
 	friendshipRepo := persistence.NewFriendshipRepository(db)
+	floorRepo := persistence.NewFloorRepository(db)
+	seatRepo := persistence.NewSeatRepository(db)
 
 	userUsecase := usecase.NewUserUsecase(userRepo)
 	friendUsecase := usecase.NewFriendUsecase(friendRequestRepo, friendshipRepo, userRepo, db)
+	floorUsecase := usecase.NewFloorUsecase(floorRepo)
+	seatUsecase := usecase.NewSeatUsecase(seatRepo)
 
 	// 管理者設定
 	setupAdmins(userUsecase)
@@ -55,6 +59,8 @@ func main() {
 	adminHandler := handler.NewAdminHandler(userUsecase, userRepo)
 	userHandler := handler.NewUserHandler(userUsecase)
 	friendHandler := handler.NewFriendHandler(friendUsecase, userUsecase)
+	floorHandler := handler.NewFloorHandler(floorUsecase, userRepo)
+	seatHandler := handler.NewSeatHandler(seatUsecase, userRepo)
 
 	// ルーターの初期化
 	r := gin.Default()
@@ -81,6 +87,8 @@ func main() {
 	adminHandler.RegisterRoutes(r)
 	userHandler.RegisterRoutes(r)
 	friendHandler.RegisterRoutes(r)
+	floorHandler.RegisterRoutes(r)
+	seatHandler.RegisterRoutes(r)
 
 	// サーバー起動
 	port := os.Getenv("SERVER_PORT")

@@ -72,3 +72,21 @@ func (rs RequestStatus) IsValid() bool {
 	}
 	return false
 }
+
+// 座席の形状
+type SeatShape string
+
+const (
+	SeatShapeRectangle SeatShape = "rectangle" // 長方形（default）
+	SeatShapeCircle    SeatShape = "circle"    // 円
+	SeatShapeSquare    SeatShape = "square"    // 正方形
+	SeatShapeOval      SeatShape = "oval"      // 楕円
+)
+
+func (s SeatShape) IsValid() bool {
+	switch s {
+	case SeatShapeRectangle, SeatShapeCircle, SeatShapeSquare, SeatShapeOval:
+		return true
+	}
+	return false
+}
