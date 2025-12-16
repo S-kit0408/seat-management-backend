@@ -29,4 +29,19 @@ var (
 	// フロア関連のエラー
 	ErrFloorNotFound      = errors.New("フロアが見つかりません")
 	ErrDuplicateFloorName = errors.New("このフロア名は既に使用されています")
+
+	// 予約関連エラー
+	ErrReservationNotFound      = errors.New("予約が見つかりません")
+	ErrReservationOverlap       = errors.New("指定時間帯に既に予約が存在します")
+	ErrInvalidReservationTime   = errors.New("予約時間が無効です（終了時刻が開始時刻より前です）")
+	ErrCannotCheckIn            = errors.New("チェックインできません")
+	ErrCannotCheckOut           = errors.New("チェックアウトできません")
+	ErrCannotCancel             = errors.New("キャンセルできません")
+	ErrCannotExtend             = errors.New("延長できません")
+	ErrInvalidReservationType   = errors.New("無効な予約タイプです")
+	ErrInvalidReservationStatus = errors.New("無効な予約ステータスです")
+
+	ErrRecurringReservationNotFound = errors.New("定期予約が見つかりません")
+	ErrInvalidDaysOfWeek            = errors.New("無効な曜日指定です")
+	ErrInvalidTimeRange             = errors.New("無効な時間範囲です")
 )

@@ -45,11 +45,28 @@ func main() {
 	friendshipRepo := persistence.NewFriendshipRepository(db)
 	floorRepo := persistence.NewFloorRepository(db)
 	seatRepo := persistence.NewSeatRepository(db)
+	reservationRepo := persistence.NewReservationRepository(db)
+	recurringReservationRepo := persistence.NewRecurringReservationRepository(db)
 
 	userUsecase := usecase.NewUserUsecase(userRepo)
 	friendUsecase := usecase.NewFriendUsecase(friendRequestRepo, friendshipRepo, userRepo, db)
 	floorUsecase := usecase.NewFloorUsecase(floorRepo)
 	seatUsecase := usecase.NewSeatUsecase(seatRepo)
+	reservationUsecase := usecase.NewReservationUsecase(
+		reservationRepo,
+		recurringReservationRepo,
+		userRepo,
+		seatRepo,
+		friendshipRepo,
+		db,
+	)
+	recurringReservationUsecase := usecase.NewRecurringReservationUsecase(
+		recurringReservationRepo,
+		reservationRepo,
+		userRepo,
+		seatRepo,
+		db,
+	)
 
 	// 管理者設定
 	setupAdmins(userUsecase)
@@ -61,6 +78,8 @@ func main() {
 	friendHandler := handler.NewFriendHandler(friendUsecase, userUsecase)
 	floorHandler := handler.NewFloorHandler(floorUsecase, userRepo)
 	seatHandler := handler.NewSeatHandler(seatUsecase, userRepo)
+	reservationHandler := handler.NewReservationHandler(reservationUsecase, userUsecase)
+	recurringReservationHandler := handler.NewRecurringReservationHandler(recurringReservationUsecase, userUsecase, userRepo)
 
 	// ルーターの初期化
 	r := gin.Default()
@@ -89,6 +108,8 @@ func main() {
 	friendHandler.RegisterRoutes(r)
 	floorHandler.RegisterRoutes(r)
 	seatHandler.RegisterRoutes(r)
+	reservationHandler.RegisterRoutes(r)
+	recurringReservationHandler.RegisterRoutes(r)
 
 	// サーバー起動
 	port := os.Getenv("SERVER_PORT")

@@ -90,3 +90,40 @@ func (s SeatShape) IsValid() bool {
 	}
 	return false
 }
+
+// 予約タイプ
+type ReservationType string
+
+const (
+	ReservationTypeInstant   ReservationType = "instant"
+	ReservationTypeScheduled ReservationType = "scheduled"
+	ReservationTypeRecurring ReservationType = "recurring"
+)
+
+func (rt ReservationType) IsValid() bool {
+	switch rt {
+	case ReservationTypeInstant, ReservationTypeScheduled, ReservationTypeRecurring:
+		return true
+	}
+	return false
+}
+
+// 予約ステータス
+type ReservationStatus string
+
+const (
+	ReservationStatusReserved  ReservationStatus = "reserved"  // 予約済み（チェックイン前）
+	ReservationStatusInUse     ReservationStatus = "in_use"    // 利用中（チェックイン済み）
+	ReservationStatusCompleted ReservationStatus = "completed" // 完了（チェックアウト済み）
+	ReservationStatusCancelled ReservationStatus = "cancelled" // キャンセル
+	ReservationStatusNoShow    ReservationStatus = "no_show"   // 無断キャンセル
+)
+
+func (rs ReservationStatus) IsValid() bool {
+	switch rs {
+	case ReservationStatusReserved, ReservationStatusInUse, ReservationStatusCompleted,
+		ReservationStatusCancelled, ReservationStatusNoShow:
+		return true
+	}
+	return false
+}
