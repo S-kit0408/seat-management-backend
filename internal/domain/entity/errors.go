@@ -44,4 +44,16 @@ var (
 	ErrRecurringReservationNotFound = errors.New("定期予約が見つかりません")
 	ErrInvalidDaysOfWeek            = errors.New("無効な曜日指定です")
 	ErrInvalidTimeRange             = errors.New("無効な時間範囲です")
+
+	// 予約設定関連のエラー
+	ErrReservationSettingsNotFound  = errors.New("予約設定が見つかりません")
+	ErrReservationTooShort          = errors.New("予約時間が最小時間より短いです")
+	ErrReservationTooLong           = errors.New("予約時間が最大時間を超えています")
+	ErrAdvanceBookingExceeded       = errors.New("事前予約期間を超えています")
+	ErrCheckInTooEarly              = errors.New("チェックイン可能時間前です")
+	ErrCheckInDeadlinePassed        = errors.New("チェックイン期限を過ぎています")
+	ErrExtensionLimitExceeded       = errors.New("延長回数の上限に達しています")
+	ErrExtensionTimeTooLong         = errors.New("延長時間が上限を超えています")
+	ErrCancellationDeadlinePassed   = errors.New("キャンセル期限を過ぎています")
+	ErrInstantReservationNotAllowed = errors.New("即時予約は許可されていません")
 )

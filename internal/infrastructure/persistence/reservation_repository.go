@@ -2,10 +2,12 @@ package persistence
 
 import (
 	"context"
-	"gorm.io/gorm"
+	"fmt"
 	"seat-management-backend/internal/domain/entity"
 	"seat-management-backend/internal/domain/repository"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type ReservationRepository struct {
@@ -174,6 +176,8 @@ func (r *ReservationRepository) FindPendingCheckIns(ctx context.Context, thresho
 
 // プライバシー設定を考慮した予約を取得
 func (r *ReservationRepository) FindVisibleReservations(ctx context.Context, viewerUserID string, timeRange *repository.TimeRange) ([]*entity.Reservation, error) {
+	fmt.Printf("[REPO DEBUG] FindVisibleReservations called for viewerUserID=%s\n", viewerUserID)
+
 	var reservations []*entity.Reservation
 
 	query := r.db.WithContext(ctx).
@@ -195,11 +199,39 @@ func (r *ReservationRepository) FindVisibleReservations(ctx context.Context, vie
 		return nil, err
 	}
 
+	fmt.Printf("[REPO DEBUG] Database returned %d reservations\n", len(reservations))
+	for _, res := range reservations {
+		privacySetting := res.PrivacySetting
+		if privacySetting == nil {
+			privacySetting = &res.User.DefaultPrivacySetting
+		}
+		fmt.Printf("[REPO DEBUG] DB Result: ID=%s, UserID=%s, Status=%s, Privacy=%s, ViewerIsOwner=%v\n",
+			res.ID, res.UserID, res.Status, *privacySetting, res.UserID == viewerUserID)
+	}
+
 	// プライバシー設定に基づいてフィルタリング
 	visibleReservations := make([]*entity.Reservation, 0)
+	now := time.Now()
+
 	for _, res := range reservations {
 		// 自分の予約は常に表示
 		if res.UserID == viewerUserID {
+			fmt.Printf("[REPO DEBUG] Including (owner): %s\n", res.ID)
+			visibleReservations = append(visibleReservations, res)
+			continue
+		}
+
+		// in_use ならプライバシー設定を無視して全員に見せる
+		if res.Status == entity.ReservationStatusInUse {
+			fmt.Printf("[REPO DEBUG] Including (in_use - privacy ignored): %s\n", res.ID)
+			visibleReservations = append(visibleReservations, res)
+			continue
+		}
+
+		// reserved で開始時刻が過ぎている場合も全員に見せる
+		if res.Status == entity.ReservationStatusReserved && res.StartTime.Before(now) {
+			fmt.Printf("[REPO DEBUG] Including (reserved & started - privacy ignored): %s (StartTime=%v, Now=%v)\n",
+				res.ID, res.StartTime, now)
 			visibleReservations = append(visibleReservations, res)
 			continue
 		}
@@ -212,18 +244,21 @@ func (r *ReservationRepository) FindVisibleReservations(ctx context.Context, vie
 
 		// プライバシーチェック
 		switch *privacySetting {
-
-		// 誰でも見える
+		// 公開
 		case entity.PrivacyPublic:
+			fmt.Printf("[REPO DEBUG] Including (public): %s\n", res.ID)
 			visibleReservations = append(visibleReservations, res)
-		// 誰にも見えない（所有者のみ）
+		// 非公開
 		case entity.PrivacyPrivate:
-			// スキップ
-		// フレンドのみ見える（フレンドチェックはusecase層で実装推奨）
+			fmt.Printf("[REPO DEBUG] FILTERING OUT (private): %s (Status=%s, StartTime=%v, Now=%v)\n",
+				res.ID, res.Status, res.StartTime, now)
+		// フレンドのみ（フレンドチェックはusecase層で実装予定）
 		case entity.PrivacyFriends:
+			fmt.Printf("[REPO DEBUG] Including (friends - needs usecase check): %s\n", res.ID)
 			visibleReservations = append(visibleReservations, res)
 		}
 	}
 
+	fmt.Printf("[REPO DEBUG] Returning %d visible reservations from repository\n", len(visibleReservations))
 	return visibleReservations, nil
 }

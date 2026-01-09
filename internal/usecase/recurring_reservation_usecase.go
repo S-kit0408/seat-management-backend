@@ -35,6 +35,7 @@ type recurringReservationUsecase struct {
 	reservationRepo          repository.ReservationRepository
 	userRepo                 repository.UserRepository
 	seatRepo                 repository.SeatRepository
+	settingsRepo             repository.ReservationSettingsRepository
 	db                       *gorm.DB
 }
 
@@ -43,6 +44,7 @@ func NewRecurringReservationUsecase(
 	reservationRepo repository.ReservationRepository,
 	userRepo repository.UserRepository,
 	seatRepo repository.SeatRepository,
+	settingsRepo repository.ReservationSettingsRepository,
 	db *gorm.DB,
 ) RecurringReservationUsecase {
 	return &recurringReservationUsecase{
@@ -50,8 +52,19 @@ func NewRecurringReservationUsecase(
 		reservationRepo:          reservationRepo,
 		userRepo:                 userRepo,
 		seatRepo:                 seatRepo,
+		settingsRepo:             settingsRepo,
 		db:                       db,
 	}
+}
+
+// getSettingsWithFallback returns active settings or code defaults on error
+func (u *recurringReservationUsecase) getSettingsWithFallback(ctx context.Context) *entity.ReservationSettings {
+	settings, err := u.settingsRepo.GetActive(ctx)
+	if err != nil {
+		// Fallback to code defaults
+		return entity.GetDefaultSettings()
+	}
+	return settings
 }
 
 // CreateRecurringReservation は定期予約を作成します
@@ -91,6 +104,27 @@ func (u *recurringReservationUsecase) CreateRecurringReservation(
 	// startTime < endTime を検証（時刻文字列として）
 	if startTime >= endTime {
 		return nil, entity.ErrInvalidTimeRange
+	}
+
+	// Get settings for duration validation
+	settings := u.getSettingsWithFallback(ctx)
+
+	// Parse time strings to calculate duration
+	startParsed, err := time.Parse("15:04:05", startTime)
+	if err != nil {
+		return nil, fmt.Errorf("invalid start time format: %w", err)
+	}
+	endParsed, err := time.Parse("15:04:05", endTime)
+	if err != nil {
+		return nil, fmt.Errorf("invalid end time format: %w", err)
+	}
+
+	durationMinutes := int(endParsed.Sub(startParsed).Minutes())
+	if durationMinutes < settings.MinReservationMinutes {
+		return nil, entity.ErrReservationTooShort
+	}
+	if durationMinutes > settings.MaxReservationMinutes {
+		return nil, entity.ErrReservationTooLong
 	}
 
 	// validFrom <= validUntil を検証
@@ -289,6 +323,18 @@ func (u *recurringReservationUsecase) GenerateReservationsForDateRange(
 ) error {
 	if startDate.After(endDate) {
 		return entity.ErrInvalidTimeRange
+	}
+
+	// Get settings for advance booking limit
+	settings := u.getSettingsWithFallback(ctx)
+
+	// Check and limit endDate based on advance booking settings
+	now := time.Now()
+	maxAdvanceDate := now.AddDate(0, 0, settings.MaxAdvanceBookingDays)
+
+	// Adjust endDate if it exceeds the advance booking limit
+	if endDate.After(maxAdvanceDate) {
+		endDate = maxAdvanceDate
 	}
 
 	// startDate から endDate まで日毎にループ

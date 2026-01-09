@@ -25,6 +25,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&entity.Seat{},
 		&entity.Reservation{},
 		&entity.RecurringReservation{},
+		&entity.ReservationSettings{},
 	)
 
 	if err != nil {
@@ -39,6 +40,16 @@ func AutoMigrate(db *gorm.DB) error {
 	// 予約関連の制約とインデックス（追加）
 	if err := createReservationConstraints(db); err != nil {
 		return err
+	}
+
+	// 予約設定の制約
+	if err := createReservationSettingsConstraints(db); err != nil {
+		return err
+	}
+
+	// デフォルト予約設定のシード
+	if err := seedDefaultReservationSettings(db); err != nil {
+		log.Printf("Warning: Failed to seed default reservation settings: %v", err)
 	}
 
 	log.Println("Database migrations completed successfully")
@@ -207,5 +218,65 @@ func createReservationConstraints(db *gorm.DB) error {
 	}
 
 	log.Println("Reservation constraints created successfully")
+	return nil
+}
+
+// Create constraints for reservation_settings table
+func createReservationSettingsConstraints(db *gorm.DB) error {
+	constraints := []string{
+		// Unique index for active settings (only one can be active)
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_reservation_settings_active
+           ON reservation_settings(is_active)
+           WHERE is_active = true;`,
+
+		// Validation constraints
+		`ALTER TABLE reservation_settings
+           DROP CONSTRAINT IF EXISTS chk_settings_min_lt_max_reservation;
+           ALTER TABLE reservation_settings
+           ADD CONSTRAINT chk_settings_min_lt_max_reservation
+           CHECK (max_reservation_minutes > min_reservation_minutes);`,
+
+		`ALTER TABLE reservation_settings
+           DROP CONSTRAINT IF EXISTS chk_settings_positive_values;
+           ALTER TABLE reservation_settings
+           ADD CONSTRAINT chk_settings_positive_values
+           CHECK (
+               min_reservation_minutes > 0 AND
+               max_reservation_minutes > 0 AND
+               max_advance_booking_days > 0 AND
+               check_in_minutes_before_start >= 0 AND
+               check_in_grace_period_minutes >= 0 AND
+               cancellation_deadline_minutes >= 0 AND
+               max_extension_minutes > 0 AND
+               max_extension_count >= 0
+           );`,
+	}
+
+	for _, constraint := range constraints {
+		if err := db.Exec(constraint).Error; err != nil {
+			log.Printf("Warning: Failed to create reservation settings constraint: %v", err)
+		}
+	}
+
+	log.Println("Reservation settings constraints created successfully")
+	return nil
+}
+
+// seedDefaultReservationSettings creates default settings if none exist
+func seedDefaultReservationSettings(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&entity.ReservationSettings{}).Count(&count).Error; err != nil {
+		return err
+	}
+
+	// Only seed if no settings exist
+	if count == 0 {
+		defaultSettings := entity.GetDefaultSettings()
+		if err := db.Create(defaultSettings).Error; err != nil {
+			return err
+		}
+		log.Println("Default reservation settings seeded successfully")
+	}
+
 	return nil
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"log"
 	"net/http"
+	"seat-management-backend/internal/domain/entity"
 	"seat-management-backend/internal/middleware"
 	"time"
 
@@ -24,14 +25,17 @@ func NewReservationHandler(ru usecase.ReservationUsecase, uu usecase.UserUsecase
 }
 
 type CreateReservationRequest struct {
-	SeatID    string    `json:"seat_id" binding:"required"`
-	StartTime time.Time `json:"start_time" binding:"required"`
-	EndTime   time.Time `json:"end_time" binding:"required"`
+	SeatID         string    `json:"seat_id" binding:"required"`
+	StartTime      time.Time `json:"start_time" binding:"required"`
+	EndTime        time.Time `json:"end_time" binding:"required"`
+	PrivacySetting string    `json:"privacy_setting"`
+	Notes          string    `json:"notes,omitempty"`
 }
 
 type CreateInstantReservationRequest struct {
 	SeatID          string `json:"seat_id" binding:"required"`
 	DurationMinutes int    `json:"duration_minutes" binding:"required"`
+	PrivacySetting  string `json:"privacy_setting"`
 }
 
 type ExtendReservationRequest struct {
@@ -56,12 +60,26 @@ func (h *ReservationHandler) CreateReservation(c *gin.Context) {
 		return
 	}
 
+	// プライバシー設定をバリデーション
+	var privacySetting *entity.PrivacySetting
+	var ps entity.PrivacySetting
+
+	if req.PrivacySetting != "" {
+		ps = entity.PrivacySetting(req.PrivacySetting)
+		if !ps.IsValid() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "無効なプライバシー設定です"})
+			return
+		}
+		privacySetting = &ps
+	}
+
 	reservation, err := h.reservationUsecase.CreateReservation(
 		c.Request.Context(),
 		user.ID,
 		req.SeatID,
 		req.StartTime,
 		req.EndTime,
+		privacySetting,
 	)
 	if err != nil {
 		log.Printf("Failed to create reservation: %v", err)
@@ -86,11 +104,25 @@ func (h *ReservationHandler) CreateInstantReservation(c *gin.Context) {
 		return
 	}
 
+	// プライバシー設定をバリデーション
+	var privacySetting *entity.PrivacySetting
+	var ps entity.PrivacySetting
+
+	if req.PrivacySetting != "" {
+		ps = entity.PrivacySetting(req.PrivacySetting)
+		if !ps.IsValid() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "無効なプライバシー設定です"})
+			return
+		}
+		privacySetting = &ps
+	}
+
 	reservation, err := h.reservationUsecase.CreateInstantReservation(
 		c.Request.Context(),
 		user.ID,
 		req.SeatID,
 		req.DurationMinutes,
+		privacySetting,
 	)
 	if err != nil {
 		log.Printf("Failed to create instant reservation: %v", err)
