@@ -48,6 +48,7 @@ func main() {
 	reservationRepo := persistence.NewReservationRepository(db)
 	recurringReservationRepo := persistence.NewRecurringReservationRepository(db)
 	reservationSettingsRepo := persistence.NewReservationSettingsRepository(db)
+	floorOperationHoursRepo := persistence.NewFloorOperationHoursRepository(db)
 
 	userUsecase := usecase.NewUserUsecase(userRepo)
 	friendUsecase := usecase.NewFriendUsecase(friendRequestRepo, friendshipRepo, userRepo, db)
@@ -64,6 +65,7 @@ func main() {
 		seatRepo,
 		friendshipRepo,
 		reservationSettingsRepo,
+		floorOperationHoursRepo,
 		db,
 	)
 	recurringReservationUsecase := usecase.NewRecurringReservationUsecase(
@@ -72,6 +74,12 @@ func main() {
 		userRepo,
 		seatRepo,
 		reservationSettingsRepo,
+		floorOperationHoursRepo,
+		db,
+	)
+	floorOperationHoursUsecase := usecase.NewFloorOperationHoursUsecase(
+		floorOperationHoursRepo,
+		floorRepo,
 		db,
 	)
 
@@ -88,6 +96,7 @@ func main() {
 	reservationHandler := handler.NewReservationHandler(reservationUsecase, userUsecase)
 	recurringReservationHandler := handler.NewRecurringReservationHandler(recurringReservationUsecase, userUsecase, userRepo)
 	reservationSettingsHandler := handler.NewReservationSettingsHandler(reservationSettingsUsecase, userRepo)
+	floorOperationHoursHandler := handler.NewFloorOperationHoursHandler(floorOperationHoursUsecase, userRepo)
 
 	// ルーターの初期化
 	r := gin.Default()
@@ -119,6 +128,7 @@ func main() {
 	reservationHandler.RegisterRoutes(r)
 	recurringReservationHandler.RegisterRoutes(r)
 	reservationSettingsHandler.RegisterRoutes(r)
+	floorOperationHoursHandler.RegisterRoutes(r)
 
 	// サーバー起動
 	port := os.Getenv("SERVER_PORT")

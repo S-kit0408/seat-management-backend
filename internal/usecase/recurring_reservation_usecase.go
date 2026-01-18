@@ -36,6 +36,7 @@ type recurringReservationUsecase struct {
 	userRepo                 repository.UserRepository
 	seatRepo                 repository.SeatRepository
 	settingsRepo             repository.ReservationSettingsRepository
+	floorOperationHoursRepo  repository.FloorOperationHoursRepository
 	db                       *gorm.DB
 }
 
@@ -45,6 +46,7 @@ func NewRecurringReservationUsecase(
 	userRepo repository.UserRepository,
 	seatRepo repository.SeatRepository,
 	settingsRepo repository.ReservationSettingsRepository,
+	floorOperationHoursRepo repository.FloorOperationHoursRepository,
 	db *gorm.DB,
 ) RecurringReservationUsecase {
 	return &recurringReservationUsecase{
@@ -53,6 +55,7 @@ func NewRecurringReservationUsecase(
 		userRepo:                 userRepo,
 		seatRepo:                 seatRepo,
 		settingsRepo:             settingsRepo,
+		floorOperationHoursRepo:  floorOperationHoursRepo,
 		db:                       db,
 	}
 }
@@ -65,6 +68,57 @@ func (u *recurringReservationUsecase) getSettingsWithFallback(ctx context.Contex
 		return entity.GetDefaultSettings()
 	}
 	return settings
+}
+
+// validateRecurringReservationOperatingHours checks if recurring reservation generation fits within operating hours
+func (u *recurringReservationUsecase) validateRecurringReservationOperatingHours(
+	ctx context.Context,
+	seat *entity.Seat,
+	startTime time.Time,
+	endTime time.Time,
+) error {
+	// If seat has no floor, skip check
+	if seat.FloorID == nil {
+		return nil
+	}
+
+	// Convert to JST (Asia/Tokyo) for day of week calculation
+	jst, _ := time.LoadLocation("Asia/Tokyo")
+	startTimeJST := startTime.In(jst)
+	endTimeJST := endTime.In(jst)
+
+	// Get day of week
+	dayOfWeek := int(startTimeJST.Weekday())
+	hours, err := u.floorOperationHoursRepo.FindByFloorIDAndDayOfWeek(ctx, *seat.FloorID, dayOfWeek)
+	if err != nil {
+		// If no operating hours defined, allow reservation
+		if err == entity.ErrFloorOperationHoursNotFound {
+			return nil
+		}
+		return err
+	}
+
+	// Check if floor is closed
+	if hours.IsClosed {
+		return fmt.Errorf("フロア(%s)は営業時間が設定されていません", *seat.FloorID)
+	}
+
+	// Extract time component and compare (in JST)
+	startTimeStr := startTimeJST.Format("15:04:05")
+	endTimeStr := endTimeJST.Format("15:04:05")
+
+	// Check if times are within operating hours
+	if startTimeStr < hours.OpenTime || startTimeStr >= hours.CloseTime {
+		return fmt.Errorf("定期予約の開始時刻(%s)が営業時間外です（営業時間: %s-%s）", startTimeStr, hours.OpenTime, hours.CloseTime)
+	}
+
+	// End time must be strictly less than or equal to close time
+	// Use > to allow exact close time
+	if endTimeStr > hours.CloseTime {
+		return fmt.Errorf("定期予約の終了時刻(%s)が営業時間を超えています（営業時間終了: %s）", endTimeStr, hours.CloseTime)
+	}
+
+	return nil
 }
 
 // CreateRecurringReservation は定期予約を作成します
@@ -91,7 +145,7 @@ func (u *recurringReservationUsecase) CreateRecurringReservation(
 		return nil, entity.ErrUserNotFound
 	}
 
-	_, err = u.seatRepo.FindByID(ctx, seatID)
+	seat, err := u.seatRepo.FindByID(ctx, seatID)
 	if err != nil {
 		return nil, entity.ErrSeatNotFound
 	}
@@ -125,6 +179,27 @@ func (u *recurringReservationUsecase) CreateRecurringReservation(
 	}
 	if durationMinutes > settings.MaxReservationMinutes {
 		return nil, entity.ErrReservationTooLong
+	}
+
+	// 営業時間チェック（各曜日について）
+	// daysOfWeekの各ビットをチェック
+	for dayOfWeek := 0; dayOfWeek < 7; dayOfWeek++ {
+		if (daysOfWeek & (1 << dayOfWeek)) == 0 {
+			continue // この曜日は指定されていない
+		}
+
+		// テスト用の時刻を作成（曜日はダミーの日付で確認）
+		testDate := validFrom
+		for testDate.Weekday() != time.Weekday(dayOfWeek) {
+			testDate = testDate.AddDate(0, 0, 1)
+		}
+
+		startTimeForDay := testDate.Truncate(24 * time.Hour).Add(startParsed.Sub(time.Unix(0, 0)))
+		endTimeForDay := testDate.Truncate(24 * time.Hour).Add(endParsed.Sub(time.Unix(0, 0)))
+
+		if err := u.validateRecurringReservationOperatingHours(ctx, seat, startTimeForDay, endTimeForDay); err != nil {
+			return nil, err
+		}
 	}
 
 	// validFrom <= validUntil を検証
@@ -281,6 +356,19 @@ func (u *recurringReservationUsecase) GenerateReservationsForDate(
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("failed to parse end time: %w", err)
+		}
+
+		// 営業時間チェック
+		seat, err := u.seatRepo.FindByID(ctx, rr.SeatID)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to find seat %s: %w", rr.SeatID, err)
+		}
+
+		if err := u.validateRecurringReservationOperatingHours(ctx, seat, startTimeObj, endTimeObj); err != nil {
+			// ログに記録してスキップ（定期予約生成時はエラーで全体をロールバックしない）
+			fmt.Printf("Skipping recurring reservation %s due to operating hours: %v\n", rr.ID, err)
+			continue
 		}
 
 		// 重複チェック（他の予約が既にあるかチェック）

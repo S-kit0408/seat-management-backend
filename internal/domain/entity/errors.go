@@ -30,6 +30,16 @@ var (
 	ErrFloorNotFound      = errors.New("フロアが見つかりません")
 	ErrDuplicateFloorName = errors.New("このフロア名は既に使用されています")
 
+	// フロア営業時間関連のエラー
+	ErrFloorOperationHoursNotFound = errors.New("フロア営業時間が見つかりません")
+	ErrInvalidDayOfWeek            = errors.New("無効な曜日です（0-6の範囲で指定してください）")
+	ErrInvalidOperationHours       = errors.New("営業時間が無効です（終了時刻は開始時刻より後である必要があります）")
+	ErrDuplicateFloorDayOfWeek     = errors.New("指定されたフロアと曜日の営業時間は既に登録されています")
+
+	// 予約時の営業時間チェック関連エラー
+	ErrFloorClosed           = errors.New("指定された日時はフロアが休館日です")
+	ErrOutsideOperatingHours = errors.New("予約時間が営業時間外です")
+
 	// 予約関連エラー
 	ErrReservationNotFound      = errors.New("予約が見つかりません")
 	ErrReservationOverlap       = errors.New("指定時間帯に既に予約が存在します")

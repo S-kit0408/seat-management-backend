@@ -26,6 +26,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&entity.Reservation{},
 		&entity.RecurringReservation{},
 		&entity.ReservationSettings{},
+		&entity.FloorOperationHours{},
 	)
 
 	if err != nil {
@@ -44,6 +45,11 @@ func AutoMigrate(db *gorm.DB) error {
 
 	// 予約設定の制約
 	if err := createReservationSettingsConstraints(db); err != nil {
+		return err
+	}
+
+	// フロア営業時間の制約
+	if err := createFloorOperationHoursConstraints(db); err != nil {
 		return err
 	}
 
@@ -278,5 +284,42 @@ func seedDefaultReservationSettings(db *gorm.DB) error {
 		log.Println("Default reservation settings seeded successfully")
 	}
 
+	return nil
+}
+
+// createFloorOperationHoursConstraints creates constraints for floor_operation_hours table
+func createFloorOperationHoursConstraints(db *gorm.DB) error {
+	constraints := []string{
+		// Composite unique index: prevent duplicate (floor_id, day_of_week)
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_floor_operation_hours_unique
+           ON floor_operation_hours(floor_id, day_of_week)
+           WHERE deleted_at IS NULL;`,
+
+		// Check constraint: open_time < close_time when not closed
+		`ALTER TABLE floor_operation_hours
+           DROP CONSTRAINT IF EXISTS chk_operation_hours_time_order;
+           ALTER TABLE floor_operation_hours
+           ADD CONSTRAINT chk_operation_hours_time_order
+           CHECK (is_closed = true OR close_time > open_time);`,
+
+		// Index for querying by floor
+		`CREATE INDEX IF NOT EXISTS idx_floor_operation_hours_floor
+           ON floor_operation_hours(floor_id)
+           WHERE deleted_at IS NULL;`,
+
+		// Index for querying by day of week
+		`CREATE INDEX IF NOT EXISTS idx_floor_operation_hours_day
+           ON floor_operation_hours(day_of_week)
+           WHERE deleted_at IS NULL;`,
+	}
+
+	for _, constraint := range constraints {
+		if err := db.Exec(constraint).Error; err != nil {
+			log.Printf("Warning: Failed to create floor operation hours constraint: %v", err)
+			// Continue on error (constraint may already exist)
+		}
+	}
+
+	log.Println("Floor operation hours constraints created successfully")
 	return nil
 }

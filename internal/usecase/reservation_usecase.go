@@ -43,6 +43,7 @@ type reservationUsecase struct {
 	seatRepo                 repository.SeatRepository
 	friendshipRepo           repository.FriendshipRepository
 	settingsRepo             repository.ReservationSettingsRepository
+	floorOperationHoursRepo  repository.FloorOperationHoursRepository
 	db                       *gorm.DB
 }
 
@@ -53,6 +54,7 @@ func NewReservationUsecase(
 	seatRepo repository.SeatRepository,
 	friendshipRepo repository.FriendshipRepository,
 	settingsRepo repository.ReservationSettingsRepository,
+	floorOperationHoursRepo repository.FloorOperationHoursRepository,
 	db *gorm.DB,
 ) ReservationUsecase {
 	return &reservationUsecase{
@@ -62,6 +64,7 @@ func NewReservationUsecase(
 		seatRepo:                 seatRepo,
 		friendshipRepo:           friendshipRepo,
 		settingsRepo:             settingsRepo,
+		floorOperationHoursRepo:  floorOperationHoursRepo,
 		db:                       db,
 	}
 }
@@ -74,6 +77,212 @@ func (u *reservationUsecase) getSettingsWithFallback(ctx context.Context) *entit
 		return entity.GetDefaultSettings()
 	}
 	return settings
+}
+
+// validateOperatingHours checks if the reservation time is within floor operating hours
+func (u *reservationUsecase) validateOperatingHours(
+	ctx context.Context,
+	seat *entity.Seat,
+	startTime time.Time,
+	endTime time.Time,
+) error {
+	// If seat has no floor, skip operating hours check
+	if seat.FloorID == nil {
+		return nil
+	}
+
+	// Convert to JST (Asia/Tokyo) for day of week calculation
+	jst, _ := time.LoadLocation("Asia/Tokyo")
+	startTimeJST := startTime.In(jst)
+	endTimeJST := endTime.In(jst)
+
+	// Get day of week for start and end times in JST
+	startDay := int(startTimeJST.Weekday())
+	endDay := int(endTimeJST.Weekday())
+
+	// Check start time
+	if err := u.checkTimeAgainstOperatingHours(ctx, *seat.FloorID, startTime, startDay); err != nil {
+		return err
+	}
+
+	// Check end time (if different day)
+	if startDay != endDay {
+		if err := u.checkTimeAgainstOperatingHours(ctx, *seat.FloorID, endTime, endDay); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// checkTimeAgainstOperatingHours checks a specific time against floor operating hours
+func (u *reservationUsecase) checkTimeAgainstOperatingHours(
+	ctx context.Context,
+	floorID string,
+	checkTime time.Time,
+	dayOfWeek int,
+) error {
+	// Get operating hours for this floor and day
+	hours, err := u.floorOperationHoursRepo.FindByFloorIDAndDayOfWeek(ctx, floorID, dayOfWeek)
+	if err != nil {
+		// If no operating hours defined, allow reservation (no restrictions)
+		if err == entity.ErrFloorOperationHoursNotFound {
+			return nil
+		}
+		return err
+	}
+
+	// Check if floor is closed
+	if hours.IsClosed {
+		return entity.ErrFloorClosed
+	}
+
+	// Convert to JST (Asia/Tokyo) before extracting time component
+	jst, _ := time.LoadLocation("Asia/Tokyo")
+	timeStr := checkTime.In(jst).Format("15:04:05")
+
+	// Compare with operating hours
+	if timeStr < hours.OpenTime || timeStr >= hours.CloseTime {
+		return entity.ErrOutsideOperatingHours
+	}
+
+	return nil
+}
+
+// validateReservationTimeWithinOperatingHours checks if reservation duration fits within operating hours
+func (u *reservationUsecase) validateReservationTimeWithinOperatingHours(
+	ctx context.Context,
+	seat *entity.Seat,
+	startTime time.Time,
+	endTime time.Time,
+	settings *entity.ReservationSettings,
+) error {
+	// If seat has no floor, skip check
+	if seat.FloorID == nil {
+		return nil
+	}
+
+	// Convert to JST (Asia/Tokyo) for day of week calculation
+	jst, _ := time.LoadLocation("Asia/Tokyo")
+	startTimeJST := startTime.In(jst)
+	endTimeJST := endTime.In(jst)
+
+	// Get start day operating hours
+	startDay := int(startTimeJST.Weekday())
+	hours, err := u.floorOperationHoursRepo.FindByFloorIDAndDayOfWeek(ctx, *seat.FloorID, startDay)
+	if err != nil {
+		// If no operating hours defined, allow reservation
+		if err == entity.ErrFloorOperationHoursNotFound {
+			return nil
+		}
+		return err
+	}
+
+	// If closed, already caught by validateOperatingHours
+	if hours.IsClosed {
+		return nil
+	}
+
+	// Check if reservation is on the same day
+	endDay := int(endTimeJST.Weekday())
+	if startDay == endDay {
+		// Single day reservation: check if available time within operating hours is sufficient
+		startTimeStr := startTimeJST.Format("15:04:05")
+		endTimeStr := endTimeJST.Format("15:04:05")
+
+		// Check if reservation fits within operating hours
+		if startTimeStr < hours.OpenTime || endTimeStr > hours.CloseTime {
+			return entity.ErrOutsideOperatingHours
+		}
+
+		// Check if available time window is sufficient for minimum duration
+		// Calculate available minutes from start of operating hours to end of operating hours
+		openTime, _ := time.Parse("15:04:05", hours.OpenTime)
+		closeTime, _ := time.Parse("15:04:05", hours.CloseTime)
+		availableMinutes := int(closeTime.Sub(openTime).Minutes())
+
+		if availableMinutes < settings.MinReservationMinutes {
+			return fmt.Errorf("営業時間内で最小予約時間(%d分)を満たす予約ができません", settings.MinReservationMinutes)
+		}
+	}
+
+	return nil
+}
+
+// validateInstantReservationWithinOperatingHours checks if instant reservation fits within remaining operating hours
+func (u *reservationUsecase) validateInstantReservationWithinOperatingHours(
+	ctx context.Context,
+	seat *entity.Seat,
+	startTime time.Time,
+	endTime time.Time,
+) error {
+	// If seat has no floor, skip check
+	if seat.FloorID == nil {
+		return nil
+	}
+
+	// Convert to JST (Asia/Tokyo) for day of week calculation
+	jst, _ := time.LoadLocation("Asia/Tokyo")
+	startTimeJST := startTime.In(jst)
+	endTimeJST := endTime.In(jst)
+
+	// For instant reservation, startTime is usually now
+	// Check if now is within operating hours
+	startDay := int(startTimeJST.Weekday())
+	endDay := int(endTimeJST.Weekday())
+
+	// Get start day's operating hours
+	hours, err := u.floorOperationHoursRepo.FindByFloorIDAndDayOfWeek(ctx, *seat.FloorID, startDay)
+	if err != nil {
+		// If no operating hours defined, allow reservation
+		if err == entity.ErrFloorOperationHoursNotFound {
+			return nil
+		}
+		return err
+	}
+
+	// If closed, already caught by validateOperatingHours
+	if hours.IsClosed {
+		return nil
+	}
+
+	// Compare times as strings for simplicity and accuracy (in JST)
+	startTimeStr := startTimeJST.Format("15:04:05")
+	endTimeStr := endTimeJST.Format("15:04:05")
+
+	// Check if start time is within operating hours
+	if startTimeStr < hours.OpenTime || startTimeStr >= hours.CloseTime {
+		return entity.ErrOutsideOperatingHours
+	}
+
+	// Check if end time fits within operating hours
+	// For same day: end time must be <= close time (inclusive of the exact close time is excluded, so use <)
+	if startDay == endDay {
+		// Single day: end time must be strictly before close time
+		if endTimeStr > hours.CloseTime {
+			return fmt.Errorf("営業時間内に予約を完了できません。営業終了時刻: %s", hours.CloseTime)
+		}
+	} else {
+		// Multi-day: check if end time is valid on end day
+		endHours, err := u.floorOperationHoursRepo.FindByFloorIDAndDayOfWeek(ctx, *seat.FloorID, endDay)
+		if err != nil {
+			if err == entity.ErrFloorOperationHoursNotFound {
+				return nil
+			}
+			return err
+		}
+
+		if endHours.IsClosed {
+			return entity.ErrFloorClosed
+		}
+
+		// End time must be before close time on end day
+		if endTimeStr > endHours.CloseTime {
+			return fmt.Errorf("営業時間内に予約を完了できません。終了日の営業終了時刻: %s", endHours.CloseTime)
+		}
+	}
+
+	return nil
 }
 
 // CreateReservation は予約を作成します
@@ -116,9 +325,19 @@ func (u *reservationUsecase) CreateReservation(
 	}
 
 	// 座席が存在するか確認
-	_, err = u.seatRepo.FindByID(ctx, seatID)
+	seat, err := u.seatRepo.FindByID(ctx, seatID)
 	if err != nil {
 		return nil, entity.ErrSeatNotFound
+	}
+
+	// 営業時間チェック
+	if err := u.validateOperatingHours(ctx, seat, startTime, endTime); err != nil {
+		return nil, err
+	}
+
+	// 営業時間内での予約時間制限チェック
+	if err := u.validateReservationTimeWithinOperatingHours(ctx, seat, startTime, endTime, settings); err != nil {
+		return nil, err
 	}
 
 	// 重複チェック（reserved と in_use のみ重複判定）
@@ -187,7 +406,7 @@ func (u *reservationUsecase) CreateInstantReservation(
 		return nil, entity.ErrUserNotFound
 	}
 
-	_, err = u.seatRepo.FindByID(ctx, seatID)
+	seat, err := u.seatRepo.FindByID(ctx, seatID)
 	if err != nil {
 		return nil, entity.ErrSeatNotFound
 	}
@@ -196,6 +415,16 @@ func (u *reservationUsecase) CreateInstantReservation(
 	now := time.Now()
 	startTime := now
 	endTime := now.Add(time.Duration(durationMinutes) * time.Minute)
+
+	// 営業時間チェック
+	if err := u.validateOperatingHours(ctx, seat, startTime, endTime); err != nil {
+		return nil, err
+	}
+
+	// 営業時間内での即時予約実行可能性チェック
+	if err := u.validateInstantReservationWithinOperatingHours(ctx, seat, startTime, endTime); err != nil {
+		return nil, err
+	}
 
 	// 重複チェック
 	overlap, err := u.reservationRepo.CheckOverlap(ctx, seatID, startTime, endTime, nil)
