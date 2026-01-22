@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
+	"seat-management-backend/internal/infrastructure/ai"
 	"seat-management-backend/internal/infrastructure/persistence"
 	"seat-management-backend/internal/interface/handler"
 	"seat-management-backend/internal/middleware"
@@ -83,6 +84,23 @@ func main() {
 		db,
 	)
 
+	// Gemini AI 検索サービス初期化
+	geminiService, err := ai.NewGeminiService(context.Background())
+	if err != nil {
+		log.Printf("Warning: Failed to initialize Gemini service: %v", err)
+	}
+	defer func() {
+		if geminiService != nil {
+			geminiService.Close()
+		}
+	}()
+
+	// AI検索 Usecase（Gemini初期化成功時のみ）
+	var aiSearchUsecase usecase.AiSearchUsecase
+	if geminiService != nil {
+		aiSearchUsecase = usecase.NewAiSearchUsecase(geminiService, seatRepo)
+	}
+
 	// 管理者設定
 	setupAdmins(userUsecase)
 
@@ -97,6 +115,12 @@ func main() {
 	recurringReservationHandler := handler.NewRecurringReservationHandler(recurringReservationUsecase, userUsecase, userRepo)
 	reservationSettingsHandler := handler.NewReservationSettingsHandler(reservationSettingsUsecase, userRepo)
 	floorOperationHoursHandler := handler.NewFloorOperationHoursHandler(floorOperationHoursUsecase, userRepo)
+
+	// Search handler (AI検索が有効な場合のみ）
+	var searchHandler *handler.SearchHandler
+	if aiSearchUsecase != nil {
+		searchHandler = handler.NewSearchHandler(aiSearchUsecase)
+	}
 
 	// ルーターの初期化
 	r := gin.Default()
@@ -129,6 +153,9 @@ func main() {
 	recurringReservationHandler.RegisterRoutes(r)
 	reservationSettingsHandler.RegisterRoutes(r)
 	floorOperationHoursHandler.RegisterRoutes(r)
+	if searchHandler != nil {
+		searchHandler.RegisterRoutes(r)
+	}
 
 	// サーバー起動
 	port := os.Getenv("SERVER_PORT")

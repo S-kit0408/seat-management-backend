@@ -23,7 +23,6 @@ type Seat struct {
 	Shape  SeatShape `gorm:"type:varchar(20);not null;default:'rectangle'" json:"shape"` // 形状
 
 	Attributes datatypes.JSON `gorm:"type:jsonb;default:'{}'" json:"attributes"`
-	// 例: {"has_power_outlet": true, "work_style": "individual", "is_window_seat": true, "lighting": "bright"}
 
 	FloorID *string `gorm:"type:char(26);index" json:"floor_id,omitempty"`
 	SpaceID *string `gorm:"type:char(26);index" json:"space_id,omitempty"`

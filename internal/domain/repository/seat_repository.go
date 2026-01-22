@@ -20,4 +20,8 @@ type SeatRepository interface {
 	FindByFloorID(ctx context.Context, floorID string) ([]*entity.Seat, error)
 	FindBySpaceID(ctx context.Context, spaceID string) ([]*entity.Seat, error)
 	FindUnassignedSeats(ctx context.Context) ([]*entity.Seat, error) // floor_id IS NULL の座席
+
+	// AI検索用メソッド
+	FindByAttributes(ctx context.Context, params map[string]interface{}) ([]*entity.Seat, error)
+	FindByKeywords(ctx context.Context, keywords []string, floorID *string) (exactMatches []*entity.Seat, partialMatches []*entity.Seat, err error)
 }
