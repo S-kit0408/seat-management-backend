@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -56,10 +55,23 @@ func NewSeatHandler(su usecase.SeatUsecase, ur repository.UserRepository) *SeatH
 	}
 }
 
+// CreateSeat godoc
+// @Summary Create seat
+// @Description Create a new seat (admin only)
+// @Tags seats
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body CreateSeatRequest true "Seat creation request"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Router /admin/seats [post]
 func (h *SeatHandler) CreateSeat(c *gin.Context) {
 	var req CreateSeatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
@@ -80,24 +92,33 @@ func (h *SeatHandler) CreateSeat(c *gin.Context) {
 	if req.Attributes != nil {
 		attrBytes, err := json.Marshal(req.Attributes)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "属性の変換に失敗しました"})
+			RespondWithError(c, http.StatusBadRequest, "属性の変換に失敗しました", CodeValidation)
 			return
 		}
 		seat.Attributes = attrBytes
 	}
 
 	if err := h.seatUsecase.Create(c.Request.Context(), seat); err != nil {
-		log.Printf("Failed to create seat: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "座席の作成に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, seat)
 }
 
-// 座席一覧取得
+// GetSeats godoc
+// @Summary Get all seats
+// @Description Get list of seats (all authenticated users)
+// @Tags seats
+// @Security BearerAuth
+// @Produce json
+// @Param limit query int false "Limit (default: 100)"
+// @Param offset query int false "Offset (default: 0)"
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /seats [get]
 func (h *SeatHandler) GetSeats(c *gin.Context) {
-	// クエリパラメータからlimitとoffsetを取得
 	limitStr := c.DefaultQuery("limit", "100")
 	offsetStr := c.DefaultQuery("offset", "0")
 
@@ -113,8 +134,7 @@ func (h *SeatHandler) GetSeats(c *gin.Context) {
 
 	seats, err := h.seatUsecase.List(c.Request.Context(), limit, offset)
 	if err != nil {
-		log.Printf("Failed to get seats: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "座席の取得に失敗しました"})
+		HandleUsecaseError(c, err, "座席の取得に失敗しました")
 		return
 	}
 
@@ -124,12 +144,20 @@ func (h *SeatHandler) GetSeats(c *gin.Context) {
 	})
 }
 
-// アクティブな座席のみを取得（フロアが設定されている座席のみ）
+// GetActiveSeats godoc
+// @Summary Get active seats
+// @Description Get only active seats with floor assignments (all authenticated users)
+// @Tags seats
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /seats/active [get]
 func (h *SeatHandler) GetActiveSeats(c *gin.Context) {
 	seats, err := h.seatUsecase.GetActiveSeatsWithFloor(c.Request.Context())
 	if err != nil {
-		log.Printf("Failed to get active seats: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "座席の取得に失敗しました"})
+		HandleUsecaseError(c, err, "アクティブな座席の取得に失敗しました")
 		return
 	}
 
@@ -139,12 +167,21 @@ func (h *SeatHandler) GetActiveSeats(c *gin.Context) {
 	})
 }
 
-// フロア未設定の座席を取得（管理者のみ）
+// GetUnassignedSeats godoc
+// @Summary Get unassigned seats
+// @Description Get seats without floor assignments (admin only)
+// @Tags seats
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/seats/unassigned [get]
 func (h *SeatHandler) GetUnassignedSeats(c *gin.Context) {
 	seats, err := h.seatUsecase.GetUnassignedSeats(c.Request.Context())
 	if err != nil {
-		log.Printf("Failed to get unassigned seats: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "座席の取得に失敗しました"})
+		HandleUsecaseError(c, err, "未割り当て座席の取得に失敗しました")
 		return
 	}
 
@@ -154,65 +191,92 @@ func (h *SeatHandler) GetUnassignedSeats(c *gin.Context) {
 	})
 }
 
-// 座席詳細を取得
+// GetSeat godoc
+// @Summary Get seat by ID
+// @Description Get seat details by ID (all authenticated users)
+// @Tags seats
+// @Security BearerAuth
+// @Param id path string true "Seat ID"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 404 {object} handler.ErrorResponse "Seat not found"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /seats/{id} [get]
 func (h *SeatHandler) GetSeat(c *gin.Context) {
 	seatID := c.Param("id")
 	if seatID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "座席IDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "座席IDが必要です", CodeValidation)
 		return
 	}
 
 	seat, err := h.seatUsecase.GetByID(c.Request.Context(), seatID)
 	if err != nil {
-		if err == entity.ErrSeatNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "座席が見つかりません"})
-			return
-		}
-		log.Printf("Failed to get seat %s: %v", seatID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "座席の取得に失敗しました"})
+		HandleUsecaseError(c, err, "座席の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, seat)
 }
 
-// 座席番号で座席を取得
+// GetSeatByNumber godoc
+// @Summary Search seat by number
+// @Description Get seat by seat number (all authenticated users)
+// @Tags seats
+// @Security BearerAuth
+// @Produce json
+// @Param seat_number query string true "Seat number"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 404 {object} handler.ErrorResponse "Seat not found"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /seats/search [get]
 func (h *SeatHandler) GetSeatByNumber(c *gin.Context) {
 	seatNumber := c.Query("seat_number")
 	if seatNumber == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "座席番号が必要です"})
+		RespondWithError(c, http.StatusBadRequest, "座席番号が必要です", CodeValidation)
 		return
 	}
 
 	seat, err := h.seatUsecase.GetBySeatNumber(c.Request.Context(), seatNumber)
 	if err != nil {
-		if err == entity.ErrSeatNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "座席が見つかりません"})
-			return
-		}
-		log.Printf("Failed to get seat by number %s: %v", seatNumber, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "座席の取得に失敗しました"})
+		HandleUsecaseError(c, err, "座席の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, seat)
 }
 
-// 座席を更新（管理者のみ）
+// UpdateSeat godoc
+// @Summary Update seat
+// @Description Update seat details (admin only)
+// @Tags seats
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param id path string true "Seat ID"
+// @Param request body UpdateSeatRequest true "Seat update request"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/seats/{id} [put]
 func (h *SeatHandler) UpdateSeat(c *gin.Context) {
 	seatID := c.Param("id")
 	if seatID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "座席IDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "座席IDが必要です", CodeValidation)
 		return
 	}
 
 	var req UpdateSeatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
-	// 更新用エンティティを作成（変更されたフィールドのみ設定）
 	seat := &entity.Seat{}
 
 	if req.SeatNumber != nil {
@@ -242,7 +306,7 @@ func (h *SeatHandler) UpdateSeat(c *gin.Context) {
 	if req.Attributes != nil {
 		attrBytes, err := json.Marshal(req.Attributes)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "属性の変換に失敗しました"})
+			RespondWithError(c, http.StatusBadRequest, "属性の変換に失敗しました", CodeValidation)
 			return
 		}
 		seat.Attributes = attrBytes
@@ -258,15 +322,13 @@ func (h *SeatHandler) UpdateSeat(c *gin.Context) {
 	}
 
 	if err := h.seatUsecase.Update(c.Request.Context(), seatID, seat); err != nil {
-		log.Printf("Failed to update seat %s: %v", seatID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "座席の更新に失敗しました")
 		return
 	}
 
-	// 更新後の座席の取得
 	updatedSeat, err := h.seatUsecase.GetByID(c.Request.Context(), seatID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新後の座席取得に失敗しました"})
+		HandleUsecaseError(c, err, "更新後の座席取得に失敗しました")
 		return
 	}
 
@@ -276,39 +338,57 @@ func (h *SeatHandler) UpdateSeat(c *gin.Context) {
 	})
 }
 
-// 座席を削除（管理者のみ）
+// DeleteSeat godoc
+// @Summary Delete seat
+// @Description Delete a seat (admin only)
+// @Tags seats
+// @Security BearerAuth
+// @Param id path string true "Seat ID"
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "Seat not found"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/seats/{id} [delete]
 func (h *SeatHandler) DeleteSeat(c *gin.Context) {
 	seatID := c.Param("id")
 	if seatID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "座席IDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "座席IDが必要です", CodeValidation)
 		return
 	}
 
 	if err := h.seatUsecase.Delete(c.Request.Context(), seatID); err != nil {
-		if err == entity.ErrSeatNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "座席が見つかりません"})
-			return
-		}
-		log.Printf("Failed to delete seat %s: %v", seatID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "座席の削除に失敗しました"})
+		HandleUsecaseError(c, err, "座席の削除に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "座席を削除しました"})
 }
 
-// フロアIDで取得
+// GetSeatsByFloor godoc
+// @Summary Get seats by floor
+// @Description Get seats assigned to a specific floor (all authenticated users)
+// @Tags seats
+// @Security BearerAuth
+// @Produce json
+// @Param floor_id query string true "Floor ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /seats/floor [get]
 func (h *SeatHandler) GetSeatsByFloor(c *gin.Context) {
 	floorID := c.Query("floor_id")
 	if floorID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "フロアIDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "フロアIDが必要です", CodeValidation)
 		return
 	}
 
 	seats, err := h.seatUsecase.GetSeatsByFloorID(c.Request.Context(), floorID)
 	if err != nil {
-		log.Printf("Failed to get seats by floor %s: %v", floorID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "座席の取得に失敗しました"})
+		HandleUsecaseError(c, err, "座席の取得に失敗しました")
 		return
 	}
 
@@ -318,18 +398,28 @@ func (h *SeatHandler) GetSeatsByFloor(c *gin.Context) {
 	})
 }
 
-// スペースIDで取得
+// GetSeatsBySpace godoc
+// @Summary Get seats by space
+// @Description Get seats assigned to a specific space (all authenticated users)
+// @Tags seats
+// @Security BearerAuth
+// @Produce json
+// @Param space_id query string true "Space ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /seats/space [get]
 func (h *SeatHandler) GetSeatsBySpace(c *gin.Context) {
 	spaceID := c.Query("space_id")
 	if spaceID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "スペースIDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "スペースIDが必要です", CodeValidation)
 		return
 	}
 
 	seats, err := h.seatUsecase.GetSeatsBySpaceID(c.Request.Context(), spaceID)
 	if err != nil {
-		log.Printf("Failed to get seats by space %s: %v", spaceID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "座席の取得に失敗しました"})
+		HandleUsecaseError(c, err, "座席の取得に失敗しました")
 		return
 	}
 
@@ -339,9 +429,7 @@ func (h *SeatHandler) GetSeatsBySpace(c *gin.Context) {
 	})
 }
 
-// ルート登録
 func (h *SeatHandler) RegisterRoutes(r *gin.Engine) {
-	// ユーザーエンドポイント（認証必須、閲覧のみ）
 	seats := r.Group("/api/seats")
 	seats.Use(middleware.ClerkAuthMiddleware())
 	{
@@ -353,7 +441,6 @@ func (h *SeatHandler) RegisterRoutes(r *gin.Engine) {
 		seats.GET("/space", h.GetSeatsBySpace)
 	}
 
-	// 管理者エンドポイント
 	admin := r.Group("/api/admin/seats")
 	admin.Use(middleware.ClerkAuthMiddleware())
 	admin.Use(middleware.RequireAdmin(h.userRepo))
@@ -361,6 +448,6 @@ func (h *SeatHandler) RegisterRoutes(r *gin.Engine) {
 		admin.POST("", h.CreateSeat)
 		admin.PUT("/:id", h.UpdateSeat)
 		admin.DELETE("/:id", h.DeleteSeat)
-		admin.GET("/unassigned", h.GetUnassignedSeats) // フロア未設定の座席
+		admin.GET("/unassigned", h.GetUnassignedSeats)
 	}
 }

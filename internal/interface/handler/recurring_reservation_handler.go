@@ -54,39 +54,47 @@ type GenerateReservationsRequest struct {
 	EndDate   string `json:"end_date" binding:"required"`   // RFC3339形式
 }
 
-// 定期予約作成
+// CreateRecurringReservation godoc
+// @Summary Create recurring reservation
+// @Description Create a recurring weekly seat reservation pattern
+// @Tags recurring-reservations
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body CreateRecurringReservationRequest true "Recurring reservation creation request"
+// @Success 201 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Router /recurring-reservations [post]
 func (h *RecurringReservationHandler) CreateRecurringReservation(c *gin.Context) {
 	var req CreateRecurringReservationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// validFromをパース
 	validFrom, err := time.Parse(time.RFC3339, req.ValidFrom)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "valid_from の日付形式が不正です"})
+		RespondWithError(c, http.StatusBadRequest, "valid_from の日付形式が不正です", CodeValidation)
 		return
 	}
 
-	// validUntilをパース
 	var validUntil *time.Time
 	if req.ValidUntil != nil {
 		vut, err := time.Parse(time.RFC3339, *req.ValidUntil)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "valid_until の日付形式が不正です"})
+			RespondWithError(c, http.StatusBadRequest, "valid_until の日付形式が不正です", CodeValidation)
 			return
 		}
 		validUntil = &vut
 	}
 
-	// プライバシー設定のデフォルト
 	privacySetting := entity.PrivacyPrivate
 	if req.PrivacySetting != "" {
 		privacySetting = entity.PrivacySetting(req.PrivacySetting)
@@ -105,93 +113,129 @@ func (h *RecurringReservationHandler) CreateRecurringReservation(c *gin.Context)
 		req.AutoExtend,
 	)
 	if err != nil {
-		log.Printf("Failed to create recurring reservation: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "定期予約の作成に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusCreated, recurringReservation)
 }
 
-// 定期予約取得（ID指定）
+// GetRecurringReservationByID godoc
+// @Summary Get recurring reservation by ID
+// @Description Get recurring reservation details by ID
+// @Tags recurring-reservations
+// @Security BearerAuth
+// @Param id path string true "Recurring reservation ID"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 404 {object} handler.ErrorResponse "Recurring reservation not found"
+// @Router /recurring-reservations/{id} [get]
 func (h *RecurringReservationHandler) GetRecurringReservationByID(c *gin.Context) {
 	id := c.Param("id")
 
 	recurringReservation, err := h.recurringReservationUsecase.GetRecurringReservationByID(c.Request.Context(), id)
 	if err != nil {
-		log.Printf("Failed to get recurring reservation: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "定期予約の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, recurringReservation)
 }
 
-// 自分の定期予約取得
+// GetMyRecurringReservations godoc
+// @Summary Get my recurring reservations
+// @Description Get all recurring reservations for the authenticated user
+// @Tags recurring-reservations
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /recurring-reservations/my [get]
 func (h *RecurringReservationHandler) GetMyRecurringReservations(c *gin.Context) {
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	recurringReservations, err := h.recurringReservationUsecase.GetMyRecurringReservations(c.Request.Context(), user.ID)
 	if err != nil {
-		log.Printf("Failed to get my recurring reservations: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "定期予約一覧の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, recurringReservations)
 }
 
-// アクティブな定期予約取得
+// GetActiveRecurringReservations godoc
+// @Summary Get active recurring reservations
+// @Description Get active recurring reservations for the authenticated user
+// @Tags recurring-reservations
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /recurring-reservations/active [get]
 func (h *RecurringReservationHandler) GetActiveRecurringReservations(c *gin.Context) {
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	recurringReservations, err := h.recurringReservationUsecase.GetActiveRecurringReservations(c.Request.Context(), user.ID)
 	if err != nil {
-		log.Printf("Failed to get active recurring reservations: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "アクティブな定期予約の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, recurringReservations)
 }
 
-// 定期予約更新
+// UpdateRecurringReservation godoc
+// @Summary Update recurring reservation
+// @Description Update a recurring reservation pattern
+// @Tags recurring-reservations
+// @Security BearerAuth
+// @Accept json
+// @Param id path string true "Recurring reservation ID"
+// @Param request body UpdateRecurringReservationRequest true "Update request"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "Recurring reservation not found"
+// @Router /recurring-reservations/{id} [put]
 func (h *RecurringReservationHandler) UpdateRecurringReservation(c *gin.Context) {
 	id := c.Param("id")
 
 	var req UpdateRecurringReservationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// 自分の定期予約のみ更新可能
 	rr, err := h.recurringReservationUsecase.GetRecurringReservationByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "定期予約の取得に失敗しました")
 		return
 	}
 
 	if rr.UserID != user.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "権限がありません"})
+		RespondWithError(c, http.StatusForbidden, "権限がありません", CodeForbidden)
 		return
 	}
 
-	// 更新マップを構築
 	updates := make(map[string]interface{})
 	if req.DaysOfWeek != nil {
 		updates["days_of_week"] = *req.DaysOfWeek
@@ -205,7 +249,7 @@ func (h *RecurringReservationHandler) UpdateRecurringReservation(c *gin.Context)
 	if req.ValidFrom != nil {
 		vf, err := time.Parse(time.RFC3339, *req.ValidFrom)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "valid_from の日付形式が不正です"})
+			RespondWithError(c, http.StatusBadRequest, "valid_from の日付形式が不正です", CodeValidation)
 			return
 		}
 		updates["valid_from"] = vf
@@ -213,7 +257,7 @@ func (h *RecurringReservationHandler) UpdateRecurringReservation(c *gin.Context)
 	if req.ValidUntil != nil {
 		vu, err := time.Parse(time.RFC3339, *req.ValidUntil)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "valid_until の日付形式が不正です"})
+			RespondWithError(c, http.StatusBadRequest, "valid_until の日付形式が不正です", CodeValidation)
 			return
 		}
 		updates["valid_until"] = vu
@@ -230,101 +274,129 @@ func (h *RecurringReservationHandler) UpdateRecurringReservation(c *gin.Context)
 
 	updatedRr, err := h.recurringReservationUsecase.UpdateRecurringReservation(c.Request.Context(), id, updates)
 	if err != nil {
-		log.Printf("Failed to update recurring reservation: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "定期予約の更新に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, updatedRr)
 }
 
-// 定期予約削除
+// DeleteRecurringReservation godoc
+// @Summary Delete recurring reservation
+// @Description Delete a recurring reservation pattern
+// @Tags recurring-reservations
+// @Security BearerAuth
+// @Param id path string true "Recurring reservation ID"
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "Recurring reservation not found"
+// @Router /recurring-reservations/{id} [delete]
 func (h *RecurringReservationHandler) DeleteRecurringReservation(c *gin.Context) {
 	id := c.Param("id")
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// 自分の定期予約のみ削除可能
 	rr, err := h.recurringReservationUsecase.GetRecurringReservationByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "定期予約の取得に失敗しました")
 		return
 	}
 
 	if rr.UserID != user.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "権限がありません"})
+		RespondWithError(c, http.StatusForbidden, "権限がありません", CodeForbidden)
 		return
 	}
 
 	if err := h.recurringReservationUsecase.DeleteRecurringReservation(c.Request.Context(), id); err != nil {
-		log.Printf("Failed to delete recurring reservation: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "定期予約の削除に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "定期予約を削除しました"})
 }
 
-// 定期予約無効化
+// DisableRecurringReservation godoc
+// @Summary Disable recurring reservation
+// @Description Disable a recurring reservation (soft disable without deletion)
+// @Tags recurring-reservations
+// @Security BearerAuth
+// @Param id path string true "Recurring reservation ID"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "Recurring reservation not found"
+// @Router /recurring-reservations/{id}/disable [post]
 func (h *RecurringReservationHandler) DisableRecurringReservation(c *gin.Context) {
 	id := c.Param("id")
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// 自分の定期予約のみ無効化可能
 	rr, err := h.recurringReservationUsecase.GetRecurringReservationByID(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "定期予約の取得に失敗しました")
 		return
 	}
 
 	if rr.UserID != user.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "権限がありません"})
+		RespondWithError(c, http.StatusForbidden, "権限がありません", CodeForbidden)
 		return
 	}
 
 	disabledRr, err := h.recurringReservationUsecase.DisableRecurringReservation(c.Request.Context(), id)
 	if err != nil {
-		log.Printf("Failed to disable recurring reservation: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "定期予約の無効化に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, disabledRr)
 }
 
-// 予約生成（管理者用）
+// GenerateReservations godoc
+// @Summary Generate reservations from recurring patterns
+// @Description Generate one-time reservations from recurring patterns for a date range (admin only)
+// @Tags recurring-reservations
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body GenerateReservationsRequest true "Generation request with date range"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Router /admin/recurring-reservations/generate [post]
 func (h *RecurringReservationHandler) GenerateReservations(c *gin.Context) {
 	var req GenerateReservationsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// 日付をパース
 	startDate, err := time.Parse(time.RFC3339, req.StartDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "start_date の日付形式が不正です"})
+		RespondWithError(c, http.StatusBadRequest, "start_date の日付形式が不正です", CodeValidation)
 		return
 	}
 
 	endDate, err := time.Parse(time.RFC3339, req.EndDate)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "end_date の日付形式が不正です"})
+		RespondWithError(c, http.StatusBadRequest, "end_date の日付形式が不正です", CodeValidation)
 		return
 	}
 
@@ -335,7 +407,7 @@ func (h *RecurringReservationHandler) GenerateReservations(c *gin.Context) {
 	); err != nil {
 		log.Printf("Failed to generate reservations by admin %s (email: %s): %v",
 			user.ID, user.Email, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約の生成に失敗しました")
 		return
 	}
 

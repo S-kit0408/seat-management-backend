@@ -34,6 +34,7 @@ type ReservationUsecase interface {
 	// その他
 	AutoCancelPendingCheckIns(ctx context.Context, thresholdMinutes int) error
 	MarkAsNoShow(ctx context.Context, reservationID string) (*entity.Reservation, error)
+	MarkPastReservationsAsNoShow(ctx context.Context) error // バッチ処理用
 }
 
 type reservationUsecase struct {
@@ -45,6 +46,7 @@ type reservationUsecase struct {
 	settingsRepo             repository.ReservationSettingsRepository
 	floorOperationHoursRepo  repository.FloorOperationHoursRepository
 	db                       *gorm.DB
+	eventNotifier            *EventNotifier
 }
 
 func NewReservationUsecase(
@@ -56,6 +58,7 @@ func NewReservationUsecase(
 	settingsRepo repository.ReservationSettingsRepository,
 	floorOperationHoursRepo repository.FloorOperationHoursRepository,
 	db *gorm.DB,
+	eventNotifier *EventNotifier,
 ) ReservationUsecase {
 	return &reservationUsecase{
 		reservationRepo:          reservationRepo,
@@ -66,6 +69,7 @@ func NewReservationUsecase(
 		settingsRepo:             settingsRepo,
 		floorOperationHoursRepo:  floorOperationHoursRepo,
 		db:                       db,
+		eventNotifier:            eventNotifier,
 	}
 }
 
@@ -373,6 +377,11 @@ func (u *reservationUsecase) CreateReservation(
 		return nil, err
 	}
 
+	// Notify WebSocket clients
+	if u.eventNotifier != nil {
+		u.eventNotifier.NotifySeatStatusChange(seatID, "reserved", reservation)
+	}
+
 	return reservation, nil
 }
 
@@ -457,6 +466,11 @@ func (u *reservationUsecase) CreateInstantReservation(
 		return nil, err
 	}
 
+	// Notify WebSocket clients
+	if u.eventNotifier != nil {
+		u.eventNotifier.NotifySeatStatusChange(seatID, "occupied", reservation)
+	}
+
 	return reservation, nil
 }
 
@@ -496,6 +510,11 @@ func (u *reservationUsecase) CheckIn(ctx context.Context, reservationID string) 
 		return nil, err
 	}
 
+	// Notify WebSocket clients
+	if u.eventNotifier != nil {
+		u.eventNotifier.NotifySeatStatusChange(reservation.SeatID, "occupied", reservation)
+	}
+
 	return reservation, nil
 }
 
@@ -518,6 +537,11 @@ func (u *reservationUsecase) CheckOut(ctx context.Context, reservationID string)
 	// 保存
 	if err := u.reservationRepo.Update(ctx, reservation); err != nil {
 		return nil, err
+	}
+
+	// Notify WebSocket clients
+	if u.eventNotifier != nil {
+		u.eventNotifier.NotifySeatStatusChange(reservation.SeatID, "available", nil)
 	}
 
 	return reservation, nil
@@ -556,6 +580,11 @@ func (u *reservationUsecase) CancelReservation(
 	// 保存
 	if err := u.reservationRepo.Update(ctx, reservation); err != nil {
 		return nil, err
+	}
+
+	// Notify WebSocket clients
+	if u.eventNotifier != nil {
+		u.eventNotifier.NotifySeatStatusChange(reservation.SeatID, "available", nil)
 	}
 
 	return reservation, nil
@@ -613,6 +642,11 @@ func (u *reservationUsecase) ExtendReservation(
 	// 保存
 	if err := u.reservationRepo.Update(ctx, reservation); err != nil {
 		return nil, err
+	}
+
+	// Notify WebSocket clients
+	if u.eventNotifier != nil {
+		u.eventNotifier.NotifySeatStatusChange(reservation.SeatID, "occupied", reservation)
 	}
 
 	return reservation, nil
@@ -815,4 +849,54 @@ func (u *reservationUsecase) MarkAsNoShow(
 	}
 
 	return reservation, nil
+}
+
+// MarkPastReservationsAsNoShow はバッチ処理で利用終了時刻を超過してチェックインされていない予約をno-showに変更
+// このメソッドは定期的に実行されることを想定（例：毎分実行）
+func (u *reservationUsecase) MarkPastReservationsAsNoShow(ctx context.Context) error {
+	now := time.Now()
+	// 過去の全予約を対象に検索（EndTime が現在時刻より前）
+	// StartTimeは遠い過去を指定
+	pastTime := now.AddDate(-1, 0, 0) // 1年前から現在まで
+
+	// reserved ステータスの予約で、現在時刻より前の終了時刻を持つものを取得
+	reservations, err := u.reservationRepo.FindByTimeRange(
+		ctx,
+		pastTime,
+		now,
+		[]entity.ReservationStatus{entity.ReservationStatusReserved},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to fetch reservations: %w", err)
+	}
+
+	var processedCount int
+	for _, reservation := range reservations {
+		// チェックインされていない && 利用終了時刻を超過している
+		if reservation.CheckedInAt == nil && reservation.EndTime.Before(now) {
+			// no-showに変更
+			reservation.MarkAsNoShow()
+
+			// DB に保存
+			if err := u.reservationRepo.Update(ctx, reservation); err != nil {
+				fmt.Printf("[ERROR] Failed to mark reservation %s as no-show: %v\n", reservation.ID, err)
+				continue
+			}
+
+			// WebSocket で座席が available になったことを通知
+			if u.eventNotifier != nil {
+				u.eventNotifier.NotifySeatStatusChange(reservation.SeatID, "available", nil)
+			}
+
+			processedCount++
+			fmt.Printf("[INFO] Marked reservation %s as no-show (user: %s, seat: %s, end_time: %s)\n",
+				reservation.ID, reservation.UserID, reservation.SeatID, reservation.EndTime)
+		}
+	}
+
+	if processedCount > 0 {
+		fmt.Printf("[INFO] No-show batch: %d reservations marked as no-show\n", processedCount)
+	}
+
+	return nil
 }

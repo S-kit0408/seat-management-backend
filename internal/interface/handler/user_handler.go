@@ -21,21 +21,41 @@ type UpdateProfileRequest struct {
 	DefaultPrivacySetting *string `json:"default_privacy_setting,omitempty"`
 }
 
+// UserResponse represents user data for API responses
+// @Description User profile response
+type UserResponse struct {
+	ID                    string  `json:"id"`
+	ClerkUserID           string  `json:"clerk_user_id"`
+	Email                 string  `json:"email"`
+	Name                  string  `json:"name"`
+	AvatarURL             *string `json:"avatar_url,omitempty"`
+	PrimaryAuthProvider   string  `json:"primary_auth_provider"`
+	DefaultPrivacySetting string  `json:"default_privacy_setting"`
+	Role                  string  `json:"role"`
+}
+
 func NewUserHandler(uu usecase.UserUsecase) *UserHandler {
 	return &UserHandler{
 		userUsecase: uu,
 	}
 }
 
-// ユーザー情報を取得
+// GetMe godoc
+// @Summary Get current user profile
+// @Description Get authenticated user's profile information
+// @Tags users
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} UserResponse
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Router /users/me [get]
 func (h *UserHandler) GetMe(c *gin.Context) {
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// 最終ログイン時刻を更新
 	if err := h.userUsecase.UpdateLastLogin(c.Request.Context(), user.ID); err != nil {
 		log.Printf("Failed to update last login for user %s: %v", user.ID, err)
 	}
@@ -43,22 +63,32 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
-// ユーザー情報の更新
+// UpdateProfile godoc
+// @Summary Update user profile
+// @Description Update current user's profile information
+// @Tags users
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body UpdateProfileRequest true "Update profile request"
+// @Success 200 {object} UserResponse
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /users/me [put]
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	var req UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		log.Printf("Failed to get authenticated user: %v", err)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// 変更フィールドのみ適用
 	if req.Name != nil {
 		user.Name = *req.Name
 	}
@@ -66,41 +96,49 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		user.AvatarURL = req.AvatarURL
 	}
 	if req.DefaultPrivacySetting != nil {
-		privacySetting := entity.PrivacySetting(*req.DefaultPrivacySetting) // 変数を定義
+		privacySetting := entity.PrivacySetting(*req.DefaultPrivacySetting)
 		if !privacySetting.IsValid() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "無効なプライバシー設定です"})
+			HandleUsecaseError(c, entity.ErrInvalidReservationType, "無効なプライバシー設定です")
 			return
 		}
 		user.DefaultPrivacySetting = privacySetting
 	}
 
 	if err := h.userUsecase.Update(c.Request.Context(), user); err != nil {
-		log.Printf("Failed to update user %s: %v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "プロフィールの更新に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, user)
 }
 
-// ユーザー検索
+// SearchUsers godoc
+// @Summary Search users by name
+// @Description Search for users by their name
+// @Tags users
+// @Security BearerAuth
+// @Produce json
+// @Param name query string true "User name to search for"
+// @Success 200 {array} UserResponse
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /users/search [get]
 func (h *UserHandler) SearchUsers(c *gin.Context) {
 	name := c.Query("name")
 	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "検索キーワードが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "検索キーワードが必要です", CodeValidation)
 		return
 	}
 
 	users, err := h.userUsecase.SearchByName(c.Request.Context(), name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "ユーザーの検索に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, users)
 }
 
-// ユーザールートを登録
 func (h *UserHandler) RegisterRoutes(r *gin.Engine) {
 	users := r.Group("/api/users")
 	users.Use(middleware.ClerkAuthMiddleware())

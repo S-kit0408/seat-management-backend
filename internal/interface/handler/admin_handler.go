@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -24,16 +23,24 @@ func NewAdminHandler(uu usecase.UserUsecase, ur repository.UserRepository) *Admi
 	}
 }
 
-// GetAllUsers は全ユーザーを取得（管理者のみ）
+// GetAllUsers godoc
+// @Summary Get all users
+// @Description Get list of all users (admin only)
+// @Tags admin
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/users [get]
 func (h *AdminHandler) GetAllUsers(c *gin.Context) {
-	// デフォルトの取得件数を設定
 	limit := 50
 	offset := 0
 
 	users, err := h.userUsecase.List(c.Request.Context(), limit, offset)
 	if err != nil {
-		log.Printf("Admin: Failed to list users: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ユーザーの取得に失敗しました"})
+		HandleUsecaseError(c, err, "ユーザー一覧の取得に失敗しました")
 		return
 	}
 
@@ -43,41 +50,52 @@ func (h *AdminHandler) GetAllUsers(c *gin.Context) {
 	})
 }
 
-// ユーザーロール更新リクエスト
 type UpdateUserRoleRequest struct {
 	Role string `json:"role" binding:"required"`
 }
 
-// ユーザーのロールを更新（管理者のみ）
+// UpdateUserRole godoc
+// @Summary Update user role
+// @Description Update the role of a user (admin only)
+// @Tags admin
+// @Security BearerAuth
+// @Accept json
+// @Param id path string true "User ID"
+// @Param request body UpdateUserRoleRequest true "Role update request"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/users/{id}/role [put]
 func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 	userID := c.Param("id")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ユーザーIDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "ユーザーIDが必要です", CodeValidation)
 		return
 	}
 
 	var req UpdateUserRoleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無効なリクエストです"})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	role := entity.UserRole(req.Role)
 	if !role.IsValid() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "無効なロールです"})
+		HandleUsecaseError(c, entity.ErrInvalidRole, "無効なロールです")
 		return
 	}
 
 	if err := h.userUsecase.UpdateRole(c.Request.Context(), userID, role); err != nil {
-		log.Printf("Admin: Failed to update role for user %s: %v", userID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ロールの更新に失敗しました"})
+		HandleUsecaseError(c, err, "ロールの更新に失敗しました")
 		return
 	}
 
-	// 更新後ユーザー情報取得
 	user, err := h.userUsecase.GetByID(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ユーザーの取得に失敗しました"})
+		HandleUsecaseError(c, err, "ユーザーの取得に失敗しました")
 		return
 	}
 
@@ -87,54 +105,72 @@ func (h *AdminHandler) UpdateUserRole(c *gin.Context) {
 	})
 }
 
-// ユーザー詳細を取得（管理者のみ）
+// GetUser godoc
+// @Summary Get user by ID
+// @Description Get user details by ID (admin only)
+// @Tags admin
+// @Security BearerAuth
+// @Param id path string true "User ID"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "User not found"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/users/{id} [get]
 func (h *AdminHandler) GetUser(c *gin.Context) {
 	userID := c.Param("id")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ユーザーIDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "ユーザーIDが必要です", CodeValidation)
 		return
 	}
 
 	user, err := h.userUsecase.GetByID(c.Request.Context(), userID)
 	if err != nil {
-		if err == entity.ErrUserNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "ユーザーが見つかりません"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ユーザーの取得に失敗しました"})
+		HandleUsecaseError(c, err, "ユーザーの取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, user)
 }
 
-// ユーザーを削除（管理者のみ）
+// DeleteUser godoc
+// @Summary Delete user
+// @Description Delete a user (soft delete) (admin only, cannot delete self)
+// @Tags admin
+// @Security BearerAuth
+// @Param id path string true "User ID"
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/users/{id} [delete]
 func (h *AdminHandler) DeleteUser(c *gin.Context) {
 	userID := c.Param("id")
 	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ユーザーIDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "ユーザーIDが必要です", CodeValidation)
 		return
 	}
 
-	// （管理者）自身を削除しようとしていないか
 	currentUser, exists := c.Get("currentUser")
 	if exists {
 		if user, ok := currentUser.(*entity.User); ok && user.ID == userID {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "自分自身を削除することはできません"})
+			RespondWithError(c, http.StatusForbidden, "自分自身を削除することはできません", CodeForbidden)
 			return
 		}
 	}
 
 	if err := h.userUsecase.Delete(c.Request.Context(), userID); err != nil {
-		log.Printf("Admin: Failed to delete user %s: %v", userID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ユーザーの削除に失敗しました"})
+		HandleUsecaseError(c, err, "ユーザーの削除に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "ユーザーを削除しました"})
 }
 
-// ユーザールートを登録
 func (h *AdminHandler) RegisterRoutes(r *gin.Engine) {
 	admin := r.Group("/api/admin")
 	admin.Use(middleware.ClerkAuthMiddleware())

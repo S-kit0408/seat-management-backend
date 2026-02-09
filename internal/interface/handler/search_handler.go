@@ -38,9 +38,9 @@ func (h *SearchHandler) RegisterRoutes(router *gin.Engine) {
 // @Produce json
 // @Param request body searchSeatsRequest true "検索クエリと検索モード"
 // @Success 200 {object} searchSeatsResponse
-// @Failure 400 {object} errorResponse
-// @Failure 401 {object} errorResponse
-// @Failure 500 {object} errorResponse
+// @Failure 400 {object} handler.ErrorResponse
+// @Failure 401 {object} handler.ErrorResponse
+// @Failure 500 {object} handler.ErrorResponse
 // @Router /search/seats [post]
 func (h *SearchHandler) SearchSeats(c *gin.Context) {
 	var req struct {
@@ -49,20 +49,18 @@ func (h *SearchHandler) SearchSeats(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "query is required"})
+		RespondWithValidationError(c, err)
 		return
 	}
 
-	// クエリの長さ検証
 	if len(req.Query) > 500 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "query is too long (max 500 characters)"})
+		RespondWithError(c, http.StatusBadRequest, "query is too long (max 500 characters)", CodeValidation)
 		return
 	}
 
-	// 検索実行
 	searchResult, err := h.aiSearchUsecase.SearchSeats(c.Request.Context(), req.Query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "座席検索に失敗しました")
 		return
 	}
 

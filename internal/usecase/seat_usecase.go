@@ -26,12 +26,14 @@ type SeatUsecase interface {
 }
 
 type seatUsecase struct {
-	seatRepo repository.SeatRepository
+	seatRepo      repository.SeatRepository
+	eventNotifier *EventNotifier
 }
 
-func NewSeatUsecase(sr repository.SeatRepository) SeatUsecase {
+func NewSeatUsecase(sr repository.SeatRepository, en *EventNotifier) SeatUsecase {
 	return &seatUsecase{
-		seatRepo: sr,
+		seatRepo:      sr,
+		eventNotifier: en,
 	}
 }
 
@@ -154,7 +156,16 @@ func (u *seatUsecase) Update(ctx context.Context, id string, seat *entity.Seat) 
 
 	existingSeat.IsActive = seat.IsActive
 
-	return u.seatRepo.Update(ctx, existingSeat)
+	if err := u.seatRepo.Update(ctx, existingSeat); err != nil {
+		return err
+	}
+
+	// 座席更新イベントを通知
+	if u.eventNotifier != nil {
+		u.eventNotifier.NotifySeatStatusChange(existingSeat.ID, "updated", nil)
+	}
+
+	return nil
 }
 
 // 座席削除
@@ -164,7 +175,16 @@ func (u *seatUsecase) Delete(ctx context.Context, id string) error {
 		return err
 	}
 
-	return u.seatRepo.Delete(ctx, id)
+	if err := u.seatRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	// 座席削除イベントを通知
+	if u.eventNotifier != nil {
+		u.eventNotifier.NotifySeatStatusChange(id, "deleted", nil)
+	}
+
+	return nil
 }
 
 // 座席一覧取得

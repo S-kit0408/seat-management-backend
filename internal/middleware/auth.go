@@ -29,18 +29,24 @@ func ClerkAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Authorizationヘッダーからトークンを取得
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
-			c.Abort()
-			return
-		}
+		var tokenString string
 
-		// "Bearer "プレフィックスを削除
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "無効な認証形式です"})
-			c.Abort()
-			return
+		if authHeader != "" {
+			// "Bearer "プレフィックスを削除
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+			if tokenString == authHeader {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "無効な認証形式です"})
+				c.Abort()
+				return
+			}
+		} else {
+			// Authorizationヘッダーがない場合、クエリパラメータから取得（WebSocket対応）
+			tokenString = c.Query("token")
+			if tokenString == "" {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "認証が必要です"})
+				c.Abort()
+				return
+			}
 		}
 
 		// デバッグログ（開発時のみ）

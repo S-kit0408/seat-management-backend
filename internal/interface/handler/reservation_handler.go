@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"log"
 	"net/http"
 	"seat-management-backend/internal/domain/entity"
 	"seat-management-backend/internal/middleware"
@@ -46,28 +45,38 @@ type CancelReservationRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// 予約作成
+// CreateReservation godoc
+// @Summary Create scheduled reservation
+// @Description Create a scheduled seat reservation with start and end times
+// @Tags reservations
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body CreateReservationRequest true "Reservation creation request"
+// @Success 201 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Router /reservations [post]
 func (h *ReservationHandler) CreateReservation(c *gin.Context) {
 	var req CreateReservationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// プライバシー設定をバリデーション
 	var privacySetting *entity.PrivacySetting
 	var ps entity.PrivacySetting
 
 	if req.PrivacySetting != "" {
 		ps = entity.PrivacySetting(req.PrivacySetting)
 		if !ps.IsValid() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "無効なプライバシー設定です"})
+			RespondWithValidationError(c, err)
 			return
 		}
 		privacySetting = &ps
@@ -82,36 +91,45 @@ func (h *ReservationHandler) CreateReservation(c *gin.Context) {
 		privacySetting,
 	)
 	if err != nil {
-		log.Printf("Failed to create reservation: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約の作成に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusCreated, reservation)
 }
 
-// その場の予約作成
+// CreateInstantReservation godoc
+// @Summary Create instant reservation
+// @Description Create an instant seat reservation for a specified duration
+// @Tags reservations
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body CreateInstantReservationRequest true "Instant reservation request"
+// @Success 201 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Router /reservations/instant [post]
 func (h *ReservationHandler) CreateInstantReservation(c *gin.Context) {
 	var req CreateInstantReservationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// プライバシー設定をバリデーション
 	var privacySetting *entity.PrivacySetting
 	var ps entity.PrivacySetting
 
 	if req.PrivacySetting != "" {
 		ps = entity.PrivacySetting(req.PrivacySetting)
 		if !ps.IsValid() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "無効なプライバシー設定です"})
+			HandleUsecaseError(c, entity.ErrInvalidReservationType, "無効なプライバシー設定です")
 			return
 		}
 		privacySetting = &ps
@@ -125,73 +143,107 @@ func (h *ReservationHandler) CreateInstantReservation(c *gin.Context) {
 		privacySetting,
 	)
 	if err != nil {
-		log.Printf("Failed to create instant reservation: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "インスタント予約の作成に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusCreated, reservation)
 }
 
-// 予約取得（ID指定）
+// GetReservationByID godoc
+// @Summary Get reservation by ID
+// @Description Get reservation details by ID
+// @Tags reservations
+// @Security BearerAuth
+// @Param id path string true "Reservation ID"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 404 {object} handler.ErrorResponse "Reservation not found"
+// @Router /reservations/{id} [get]
 func (h *ReservationHandler) GetReservationByID(c *gin.Context) {
 	reservationID := c.Param("id")
 
 	reservation, err := h.reservationUsecase.GetReservationByID(c.Request.Context(), reservationID)
 	if err != nil {
-		log.Printf("Failed to get reservation: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, reservation)
 }
 
-// 自分の予約取得
+// GetMyReservations godoc
+// @Summary Get my reservations
+// @Description Get all reservations for the authenticated user
+// @Tags reservations
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /reservations/my [get]
 func (h *ReservationHandler) GetMyReservations(c *gin.Context) {
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	reservations, err := h.reservationUsecase.GetMyReservations(c.Request.Context(), user.ID)
 	if err != nil {
-		log.Printf("Failed to get my reservations: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約一覧の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, reservations)
 }
 
-// アクティブな予約取得
+// GetActiveReservations godoc
+// @Summary Get active reservations
+// @Description Get active (reserved/in-use) reservations for the authenticated user
+// @Tags reservations
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /reservations/active [get]
 func (h *ReservationHandler) GetActiveReservations(c *gin.Context) {
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	reservations, err := h.reservationUsecase.GetActiveReservations(c.Request.Context(), user.ID)
 	if err != nil {
-		log.Printf("Failed to get active reservations: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "アクティブな予約の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, reservations)
 }
 
-// 見える予約取得（プライバシー対応）
+// GetVisibleReservations godoc
+// @Summary Get visible reservations
+// @Description Get reservations visible to the authenticated user (privacy-aware)
+// @Tags reservations
+// @Security BearerAuth
+// @Produce json
+// @Param start_time query string false "Start time (RFC3339 format)"
+// @Param end_time query string false "End time (RFC3339 format)"
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /reservations/visible [get]
 func (h *ReservationHandler) GetVisibleReservations(c *gin.Context) {
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
-	// クエリパラメータで時間範囲を指定可能
 	startTimeStr := c.Query("start_time")
 	endTimeStr := c.Query("end_time")
 
@@ -214,105 +266,135 @@ func (h *ReservationHandler) GetVisibleReservations(c *gin.Context) {
 		endTime,
 	)
 	if err != nil {
-		log.Printf("Failed to get visible reservations: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "可視予約の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, reservations)
 }
 
-// チェックイン
+// CheckIn godoc
+// @Summary Check in to reservation
+// @Description Check in to a reserved seat
+// @Tags reservations
+// @Security BearerAuth
+// @Param id path string true "Reservation ID"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "Reservation not found"
+// @Router /reservations/{id}/checkin [post]
 func (h *ReservationHandler) CheckIn(c *gin.Context) {
 	reservationID := c.Param("id")
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	reservation, err := h.reservationUsecase.GetReservationByID(c.Request.Context(), reservationID)
 	if err != nil {
-		log.Printf("Failed to get reservation: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約の取得に失敗しました")
 		return
 	}
 
-	// 自分の予約のみチェックイン可能
 	if reservation.UserID != user.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "権限がありません"})
+		RespondWithError(c, http.StatusForbidden, "権限がありません", CodeForbidden)
 		return
 	}
 
 	reservation, err = h.reservationUsecase.CheckIn(c.Request.Context(), reservationID)
 	if err != nil {
-		log.Printf("Failed to check in: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "チェックインに失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, reservation)
 }
 
-// チェックアウト
+// CheckOut godoc
+// @Summary Check out from reservation
+// @Description Check out from a seat reservation
+// @Tags reservations
+// @Security BearerAuth
+// @Param id path string true "Reservation ID"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "Reservation not found"
+// @Router /reservations/{id}/checkout [post]
 func (h *ReservationHandler) CheckOut(c *gin.Context) {
 	reservationID := c.Param("id")
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	reservation, err := h.reservationUsecase.GetReservationByID(c.Request.Context(), reservationID)
 	if err != nil {
-		log.Printf("Failed to get reservation: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約の取得に失敗しました")
 		return
 	}
 
-	// 自分の予約のみチェックアウト可能
 	if reservation.UserID != user.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "権限がありません"})
+		RespondWithError(c, http.StatusForbidden, "権限がありません", CodeForbidden)
 		return
 	}
 
 	reservation, err = h.reservationUsecase.CheckOut(c.Request.Context(), reservationID)
 	if err != nil {
-		log.Printf("Failed to check out: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "チェックアウトに失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, reservation)
 }
 
-// キャンセル
+// CancelReservation godoc
+// @Summary Cancel reservation
+// @Description Cancel a reservation with optional reason
+// @Tags reservations
+// @Security BearerAuth
+// @Accept json
+// @Param id path string true "Reservation ID"
+// @Param request body CancelReservationRequest true "Cancellation details"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "Reservation not found"
+// @Router /reservations/{id}/cancel [post]
 func (h *ReservationHandler) CancelReservation(c *gin.Context) {
 	reservationID := c.Param("id")
 
 	var req CancelReservationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	reservation, err := h.reservationUsecase.GetReservationByID(c.Request.Context(), reservationID)
 	if err != nil {
-		log.Printf("Failed to get reservation: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約の取得に失敗しました")
 		return
 	}
 
 	if reservation.UserID != user.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "権限がありません"})
+		RespondWithError(c, http.StatusForbidden, "権限がありません", CodeForbidden)
 		return
 	}
 
@@ -322,39 +404,51 @@ func (h *ReservationHandler) CancelReservation(c *gin.Context) {
 		req.Reason,
 	)
 	if err != nil {
-		log.Printf("Failed to cancel reservation: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約のキャンセルに失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, reservation)
 }
 
-// 延長
+// ExtendReservation godoc
+// @Summary Extend reservation
+// @Description Extend a reservation by additional minutes
+// @Tags reservations
+// @Security BearerAuth
+// @Accept json
+// @Param id path string true "Reservation ID"
+// @Param request body ExtendReservationRequest true "Extension details"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "Reservation not found"
+// @Router /reservations/{id}/extend [post]
 func (h *ReservationHandler) ExtendReservation(c *gin.Context) {
 	reservationID := c.Param("id")
 
 	var req ExtendReservationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	reservation, err := h.reservationUsecase.GetReservationByID(c.Request.Context(), reservationID)
 	if err != nil {
-		log.Printf("Failed to get reservation: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約の取得に失敗しました")
 		return
 	}
 
 	if reservation.UserID != user.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "権限がありません"})
+		RespondWithError(c, http.StatusForbidden, "権限がありません", CodeForbidden)
 		return
 	}
 
@@ -364,8 +458,7 @@ func (h *ReservationHandler) ExtendReservation(c *gin.Context) {
 		req.AdditionalMinutes,
 	)
 	if err != nil {
-		log.Printf("Failed to extend reservation: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "予約の延長に失敗しました")
 		return
 	}
 

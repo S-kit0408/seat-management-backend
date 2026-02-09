@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -28,187 +27,269 @@ type SendFriendRequestRequest struct {
 	Message       *string `json:"message"`
 }
 
-// フレンド申請を送信
+// SendFriendRequest godoc
+// @Summary Send friend request
+// @Description Send a friend request to another user by name
+// @Tags friends
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body SendFriendRequestRequest true "Friend request details"
+// @Success 201 {object} map[string]string
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 404 {object} handler.ErrorResponse "User not found"
+// @Router /friends/requests [post]
 func (h *FriendHandler) SendFriendRequest(c *gin.Context) {
 	var req SendFriendRequestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	addressee, err := h.userUsecase.GetByName(c.Request.Context(), req.AddresseeName)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "指定されたユーザーが見つかりません"})
+		HandleUsecaseError(c, err, "ユーザーの取得に失敗しました")
 		return
 	}
 
 	if err := h.friendUsecase.SendFriendRequest(c.Request.Context(), user.ID, addressee.ID, req.Message); err != nil {
-		log.Printf("Failed to send friend request from %s to %s: %v", user.ID, addressee.ID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "フレンド申請の送信に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": "フレンド申請を送信しました"})
 }
 
-// 受信した申請一覧を取得
+// GetReceivedRequests godoc
+// @Summary Get received friend requests
+// @Description Get list of friend requests received by the authenticated user
+// @Tags friends
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /friends/requests/received [get]
 func (h *FriendHandler) GetReceivedRequests(c *gin.Context) {
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	requests, err := h.friendUsecase.GetReceivedRequests(c.Request.Context(), user.ID)
 	if err != nil {
-		log.Printf("Failed to get received requests for user %s: %v", user.ID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "申請一覧の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, requests)
 }
 
-// 送信した申請一覧を取得
+// GetSentRequests godoc
+// @Summary Get sent friend requests
+// @Description Get list of friend requests sent by the authenticated user
+// @Tags friends
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /friends/requests/sent [get]
 func (h *FriendHandler) GetSentRequests(c *gin.Context) {
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	requests, err := h.friendUsecase.GetSentRequests(c.Request.Context(), user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "申請一覧の取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, requests)
 }
 
-// 申請を承認
+// AcceptFriendRequest godoc
+// @Summary Accept friend request
+// @Description Accept a received friend request
+// @Tags friends
+// @Security BearerAuth
+// @Param id path string true "Friend request ID"
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Router /friends/requests/{id}/accept [post]
 func (h *FriendHandler) AcceptFriendRequest(c *gin.Context) {
 	requestID := c.Param("id")
 	if requestID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "リクエストIDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "リクエストIDが必要です", CodeBadRequest)
 		return
 	}
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	if err := h.friendUsecase.AcceptFriendRequest(c.Request.Context(), requestID, user.ID); err != nil {
-		log.Printf("Failed to accept friend request %s by user %s: %v", requestID, user.ID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "申請の承認に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "フレンド申請を承認しました"})
 }
 
-// 申請を拒否
+// RejectFriendRequest godoc
+// @Summary Reject friend request
+// @Description Reject a received friend request
+// @Tags friends
+// @Security BearerAuth
+// @Param id path string true "Friend request ID"
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Router /friends/requests/{id}/reject [post]
 func (h *FriendHandler) RejectFriendRequest(c *gin.Context) {
 	requestID := c.Param("id")
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	if err := h.friendUsecase.RejectFriendRequest(c.Request.Context(), requestID, user.ID); err != nil {
-		log.Printf("Failed to reject friend request %s by user %s: %v", requestID, user.ID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "申請の拒否に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "フレンド申請を拒否しました"})
 }
 
-// 申請をキャンセル
+// CancelFriendRequest godoc
+// @Summary Cancel friend request
+// @Description Cancel a sent friend request
+// @Tags friends
+// @Security BearerAuth
+// @Param id path string true "Friend request ID"
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Router /friends/requests/{id} [delete]
 func (h *FriendHandler) CancelFriendRequest(c *gin.Context) {
 	requestID := c.Param("id")
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	if err := h.friendUsecase.CancelFriendRequest(c.Request.Context(), requestID, user.ID); err != nil {
-		log.Printf("Failed to cancel friend request %s by user %s: %v", requestID, user.ID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "申請のキャンセルに失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "フレンド申請をキャンセルしました"})
 }
 
-// フレンドリストを取得
+// GetFriendsList godoc
+// @Summary Get friends list
+// @Description Get list of friends for the authenticated user
+// @Tags friends
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /friends [get]
 func (h *FriendHandler) GetFriendsList(c *gin.Context) {
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	friends, err := h.friendUsecase.GetFriendsList(c.Request.Context(), user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "フレンドリストの取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, friends)
 }
 
-// フレンドを解除
+// RemoveFriend godoc
+// @Summary Remove friend
+// @Description Remove a friend from the authenticated user's friend list
+// @Tags friends
+// @Security BearerAuth
+// @Param id path string true "Friend user ID"
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Router /friends/{id} [delete]
 func (h *FriendHandler) RemoveFriend(c *gin.Context) {
 	friendID := c.Param("id")
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	if err := h.friendUsecase.RemoveFriend(c.Request.Context(), user.ID, friendID); err != nil {
-		log.Printf("Failed to remove friend %s for user %s: %v", friendID, user.ID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "フレンド削除に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "フレンドを解除しました"})
 }
 
-// フレンド関係を確認
+// CheckFriendship godoc
+// @Summary Check friendship status
+// @Description Check if a user is a friend of the authenticated user
+// @Tags friends
+// @Security BearerAuth
+// @Param id path string true "Target user ID"
+// @Produce json
+// @Success 200 {object} map[string]bool
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /friends/{id}/status [get]
 func (h *FriendHandler) CheckFriendship(c *gin.Context) {
 	targetID := c.Param("id")
 
 	user, err := GetAuthenticatedUser(c, h.userUsecase)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "認証されていません"})
+		RespondWithUnauthorized(c)
 		return
 	}
 
 	isFriend, err := h.friendUsecase.CheckFriendship(c.Request.Context(), user.ID, targetID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "フレンド関係の確認に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"is_friend": isFriend})
 }
 
-// ルート登録
 func (h *FriendHandler) RegisterRoutes(r *gin.Engine) {
 	api := r.Group("/api/friends")
 	api.Use(middleware.ClerkAuthMiddleware())

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"log"
 	"net/http"
 	"strconv"
 
@@ -41,11 +40,23 @@ func NewFloorHandler(fu usecase.FloorUsecase, ur repository.UserRepository) *Flo
 	}
 }
 
-// フロア作成（管理者のみ）
+// CreateFloor godoc
+// @Summary Create floor
+// @Description Create a new floor (admin only)
+// @Tags floors
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body CreateFloorRequest true "Floor creation request"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Router /admin/floors [post]
 func (h *FloorHandler) CreateFloor(c *gin.Context) {
 	var req CreateFloorRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
@@ -58,15 +69,26 @@ func (h *FloorHandler) CreateFloor(c *gin.Context) {
 	}
 
 	if err := h.floorUsecase.Create(c.Request.Context(), floor); err != nil {
-		log.Printf("Failed to create floor: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "フロアの作成に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, floor)
 }
 
-// フロア一覧取得（全ユーザー）
+// GetFloors godoc
+// @Summary Get all floors
+// @Description Get all floors including inactive ones (admin only)
+// @Tags floors
+// @Security BearerAuth
+// @Produce json
+// @Param limit query int false "Limit (default: 100)"
+// @Param offset query int false "Offset (default: 0)"
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/floors [get]
 func (h *FloorHandler) GetFloors(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "100")
 	offsetStr := c.DefaultQuery("offset", "0")
@@ -83,8 +105,7 @@ func (h *FloorHandler) GetFloors(c *gin.Context) {
 
 	floors, err := h.floorUsecase.List(c.Request.Context(), limit, offset)
 	if err != nil {
-		log.Printf("Failed to get floors: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "フロアの取得に失敗しました"})
+		HandleUsecaseError(c, err, "フロア一覧の取得に失敗しました")
 		return
 	}
 
@@ -94,12 +115,20 @@ func (h *FloorHandler) GetFloors(c *gin.Context) {
 	})
 }
 
-// アクティブなフロアのみを取得（全ユーザー）
+// GetActiveFloors godoc
+// @Summary Get active floors
+// @Description Get only active floors (all authenticated users)
+// @Tags floors
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /floors/active [get]
 func (h *FloorHandler) GetActiveFloors(c *gin.Context) {
 	floors, err := h.floorUsecase.GetActiveFloors(c.Request.Context())
 	if err != nil {
-		log.Printf("Failed to get active floors: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "フロアの取得に失敗しました"})
+		HandleUsecaseError(c, err, "アクティブなフロアの取得に失敗しました")
 		return
 	}
 
@@ -109,43 +138,63 @@ func (h *FloorHandler) GetActiveFloors(c *gin.Context) {
 	})
 }
 
-// フロア詳細を取得（全ユーザー）
+// GetFloor godoc
+// @Summary Get floor by ID
+// @Description Get floor details by ID (all authenticated users)
+// @Tags floors
+// @Security BearerAuth
+// @Param id path string true "Floor ID"
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 404 {object} handler.ErrorResponse "Floor not found"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /floors/{id} [get]
 func (h *FloorHandler) GetFloor(c *gin.Context) {
 	floorID := c.Param("id")
 	if floorID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "フロアIDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "フロアIDが必要です", CodeValidation)
 		return
 	}
 
 	floor, err := h.floorUsecase.GetByID(c.Request.Context(), floorID)
 	if err != nil {
-		if err == entity.ErrFloorNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "フロアが見つかりません"})
-			return
-		}
-		log.Printf("Failed to get floor %s: %v", floorID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "フロアの取得に失敗しました"})
+		HandleUsecaseError(c, err, "フロアの取得に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, floor)
 }
 
-// フロアを更新（管理者のみ）
+// UpdateFloor godoc
+// @Summary Update floor
+// @Description Update floor details (admin only)
+// @Tags floors
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param id path string true "Floor ID"
+// @Param request body UpdateFloorRequest true "Floor update request"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/floors/{id} [put]
 func (h *FloorHandler) UpdateFloor(c *gin.Context) {
 	floorID := c.Param("id")
 	if floorID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "フロアIDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "フロアIDが必要です", CodeValidation)
 		return
 	}
 
 	var req UpdateFloorRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		RespondWithValidationError(c, err)
 		return
 	}
 
-	// 更新用エンティティを作成（変更されたフィールドのみ設定）
 	floor := &entity.Floor{}
 
 	if req.Name != nil {
@@ -165,15 +214,13 @@ func (h *FloorHandler) UpdateFloor(c *gin.Context) {
 	}
 
 	if err := h.floorUsecase.Update(c.Request.Context(), floorID, floor); err != nil {
-		log.Printf("Failed to update floor %s: %v", floorID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		HandleUsecaseError(c, err, "フロアの更新に失敗しました")
 		return
 	}
 
-	// 更新後のフロアを取得
 	updatedFloor, err := h.floorUsecase.GetByID(c.Request.Context(), floorID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新後のフロア取得に失敗しました"})
+		HandleUsecaseError(c, err, "更新後のフロア取得に失敗しました")
 		return
 	}
 
@@ -183,30 +230,36 @@ func (h *FloorHandler) UpdateFloor(c *gin.Context) {
 	})
 }
 
-// フロアを削除（管理者のみ）
+// DeleteFloor godoc
+// @Summary Delete floor
+// @Description Delete a floor (admin only)
+// @Tags floors
+// @Security BearerAuth
+// @Param id path string true "Floor ID"
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} handler.ErrorResponse "Bad request"
+// @Failure 401 {object} handler.ErrorResponse "Unauthorized"
+// @Failure 403 {object} handler.ErrorResponse "Forbidden"
+// @Failure 404 {object} handler.ErrorResponse "Floor not found"
+// @Failure 500 {object} handler.ErrorResponse "Internal server error"
+// @Router /admin/floors/{id} [delete]
 func (h *FloorHandler) DeleteFloor(c *gin.Context) {
 	floorID := c.Param("id")
 	if floorID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "フロアIDが必要です"})
+		RespondWithError(c, http.StatusBadRequest, "フロアIDが必要です", CodeValidation)
 		return
 	}
 
 	if err := h.floorUsecase.Delete(c.Request.Context(), floorID); err != nil {
-		if err == entity.ErrFloorNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "フロアが見つかりません"})
-			return
-		}
-		log.Printf("Failed to delete floor %s: %v", floorID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "フロアの削除に失敗しました"})
+		HandleUsecaseError(c, err, "フロアの削除に失敗しました")
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "フロアを削除しました"})
 }
 
-// ルート登録
 func (h *FloorHandler) RegisterRoutes(r *gin.Engine) {
-	// ユーザーエンドポイント（認証必須、閲覧のみ）
 	floors := r.Group("/api/floors")
 	floors.Use(middleware.ClerkAuthMiddleware())
 	{
@@ -214,7 +267,6 @@ func (h *FloorHandler) RegisterRoutes(r *gin.Engine) {
 		floors.GET("/:id", h.GetFloor)
 	}
 
-	// 管理者エンドポイント
 	admin := r.Group("/api/admin/floors")
 	admin.Use(middleware.ClerkAuthMiddleware())
 	admin.Use(middleware.RequireAdmin(h.userRepo))

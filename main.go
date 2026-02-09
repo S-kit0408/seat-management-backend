@@ -5,19 +5,39 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
+	_ "seat-management-backend/docs"
 	"seat-management-backend/internal/infrastructure/ai"
 	"seat-management-backend/internal/infrastructure/persistence"
+	"seat-management-backend/internal/infrastructure/websocket"
 	"seat-management-backend/internal/interface/handler"
 	"seat-management-backend/internal/middleware"
 	"seat-management-backend/internal/usecase"
 	"seat-management-backend/pkg/database"
 )
 
+// @title Seat Management Backend API
+// @version 1.0
+// @description AI-powered seat reservation system API
+// @termsOfService http://swagger.io/terms/
+// @contact.name Support
+// @contact.url http://localhost:8080/support
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+// @host localhost:8080
+// @basePath /api
+// @schemes http https
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and JWT token
 func main() {
 	// 環境変数読み込み
 	if err := godotenv.Load(); err != nil {
@@ -51,10 +71,21 @@ func main() {
 	reservationSettingsRepo := persistence.NewReservationSettingsRepository(db)
 	floorOperationHoursRepo := persistence.NewFloorOperationHoursRepository(db)
 
+	// Initialize WebSocket Hub
+	wsHub := websocket.NewHub()
+
+	// Start WebSocket Hub in background
+	wsCtx, wsCancel := context.WithCancel(context.Background())
+	defer wsCancel()
+	go wsHub.Run(wsCtx)
+
+	// Initialize EventNotifier
+	eventNotifier := usecase.NewEventNotifier(wsHub)
+
 	userUsecase := usecase.NewUserUsecase(userRepo)
 	friendUsecase := usecase.NewFriendUsecase(friendRequestRepo, friendshipRepo, userRepo, db)
 	floorUsecase := usecase.NewFloorUsecase(floorRepo)
-	seatUsecase := usecase.NewSeatUsecase(seatRepo)
+	seatUsecase := usecase.NewSeatUsecase(seatRepo, eventNotifier)
 	reservationSettingsUsecase := usecase.NewReservationSettingsUsecase(
 		reservationSettingsRepo,
 		db,
@@ -68,6 +99,7 @@ func main() {
 		reservationSettingsRepo,
 		floorOperationHoursRepo,
 		db,
+		eventNotifier,
 	)
 	recurringReservationUsecase := usecase.NewRecurringReservationUsecase(
 		recurringReservationRepo,
@@ -104,6 +136,11 @@ func main() {
 	// 管理者設定
 	setupAdmins(userUsecase)
 
+	// Start no-show batch processing in background
+	batchCtx, batchCancel := context.WithCancel(context.Background())
+	defer batchCancel()
+	go startNoShowBatchJob(batchCtx, reservationUsecase)
+
 	// handler init
 	webhookHandler := handler.NewWebhookHandler(userUsecase)
 	adminHandler := handler.NewAdminHandler(userUsecase, userRepo)
@@ -115,6 +152,7 @@ func main() {
 	recurringReservationHandler := handler.NewRecurringReservationHandler(recurringReservationUsecase, userUsecase, userRepo)
 	reservationSettingsHandler := handler.NewReservationSettingsHandler(reservationSettingsUsecase, userRepo)
 	floorOperationHoursHandler := handler.NewFloorOperationHoursHandler(floorOperationHoursUsecase, userRepo)
+	wsHandler := handler.NewWebSocketHandler(wsHub, userUsecase, friendshipRepo)
 
 	// Search handler (AI検索が有効な場合のみ）
 	var searchHandler *handler.SearchHandler
@@ -142,6 +180,9 @@ func main() {
 		})
 	})
 
+	// Swagger UI
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
 	// ルートの登録
 	webhookHandler.RegisterRoutes(r)
 	adminHandler.RegisterRoutes(r)
@@ -153,6 +194,7 @@ func main() {
 	recurringReservationHandler.RegisterRoutes(r)
 	reservationSettingsHandler.RegisterRoutes(r)
 	floorOperationHoursHandler.RegisterRoutes(r)
+	wsHandler.RegisterRoutes(r)
 	if searchHandler != nil {
 		searchHandler.RegisterRoutes(r)
 	}
@@ -190,4 +232,27 @@ func setupAdmins(userUsecase usecase.UserUsecase) {
 	}
 
 	log.Printf("Admin users configured: %v", adminEmails)
+}
+
+// startNoShowBatchJob はno-show自動変更のバッチ処理を定期実行
+// 毎分実行され、利用終了時刻を超過してチェックインされていない予約をno-showに変更
+func startNoShowBatchJob(ctx context.Context, reservationUsecase usecase.ReservationUsecase) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	log.Println("No-show batch job started (runs every 1 minute)")
+
+	for {
+		select {
+		case <-ticker.C:
+			// バッチ処理を実行
+			if err := reservationUsecase.MarkPastReservationsAsNoShow(ctx); err != nil {
+				log.Printf("[ERROR] No-show batch job failed: %v", err)
+			}
+
+		case <-ctx.Done():
+			log.Println("No-show batch job stopped")
+			return
+		}
+	}
 }
